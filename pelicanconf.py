@@ -4,7 +4,7 @@ from __future__ import unicode_literals
 
 AUTHOR = 'tinyeng'
 SITENAME = 'Under the hood'
-SITEURL = 'https://avisiedo.github.io/output'
+SITEURL = 'https://avisiedo.github.io/docs'
 
 PATH = 'content'
 
@@ -20,7 +20,7 @@ AUTHOR_FEED_ATOM = None
 AUTHOR_FEED_RSS = None
 
 # Blogroll
-LINKS = (('Under The Hood', 'https://avisiedo.github.io'),
+LINKS = (('Under The Hood', 'https://avisiedo.github.io/docs'),
          ('Pelican', 'http://getpelican.com/'),)
 
 # Social widget

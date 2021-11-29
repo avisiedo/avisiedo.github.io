@@ -11,7 +11,7 @@ pip install -r requirements.txt
 ## Building the blog pages
 
 ```shell
-pelican content
+pelican -o docs content
 ```
 
 ## Previewing the blog

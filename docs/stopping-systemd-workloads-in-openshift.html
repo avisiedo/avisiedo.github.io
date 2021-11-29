@@ -28,15 +28,15 @@
 
 
 <meta name="author" content="tinyeng" />
-<meta name="description" content="Overview Are you using systemd workloads? then this article sure will catch your attention. Into this article we are going to see how the workloads based on systemd could be stopped gracefully. To show what we want to transmit into this article, we are going to do some hands on …" />
+<meta name="description" content="Overview Are you using systemd workloads? then this article could be of your interest. Along this article we are going to see how the workloads based on systemd could be stopped gracefully on kubernetes. To show what we want to transmit into this article, we are going to do a …" />
 <meta name="keywords" content="">
 
 
 <meta property="og:site_name" content="Under the hood"/>
-<meta property="og:title" content="Stopping systemd workloads in k8s"/>
-<meta property="og:description" content="Overview Are you using systemd workloads? then this article sure will catch your attention. Into this article we are going to see how the workloads based on systemd could be stopped gracefully. To show what we want to transmit into this article, we are going to do some hands on …"/>
+<meta property="og:title" content="Stopping systemd workloads in Openshift"/>
+<meta property="og:description" content="Overview Are you using systemd workloads? then this article could be of your interest. Along this article we are going to see how the workloads based on systemd could be stopped gracefully on kubernetes. To show what we want to transmit into this article, we are going to do a …"/>
 <meta property="og:locale" content="en_US"/>
-<meta property="og:url" content="https://avisiedo.github.io/docs/stopping-systemd-workloads-in-k8s.html"/>
+<meta property="og:url" content="https://avisiedo.github.io/docs/stopping-systemd-workloads-in-openshift.html"/>
 <meta property="og:type" content="article"/>
 <meta property="article:published_time" content="2021-11-28 12:00:00+01:00"/>
 <meta property="article:modified_time" content=""/>
@@ -44,7 +44,7 @@
 <meta property="article:section" content="kubernetes"/>
 <meta property="og:image" content="">
 
-  <title>Under the hood &ndash; Stopping systemd workloads in k8s</title>
+  <title>Under the hood &ndash; Stopping systemd workloads in Openshift</title>
 
 </head>
 <body class="light-theme">
@@ -95,7 +95,7 @@
 <article class="single">
   <header>
       
-    <h1 id="stopping-systemd-workloads-in-k8s">Stopping systemd workloads in k8s</h1>
+    <h1 id="stopping-systemd-workloads-in-openshift">Stopping systemd workloads in Openshift</h1>
     <p>
       Posted on Sun 28 November 2021 in <a href="https://avisiedo.github.io/docs/category/kubernetes.html">kubernetes</a>
 
@@ -105,16 +105,15 @@
 
   <div>
     <h1>Overview</h1>
-<p>Are you using systemd workloads? then this article sure will catch your
-attention. Into this article we are going to see how the workloads based on
-systemd could be stopped gracefully.</p>
+<p>Are you using systemd workloads? then this article could be of your interest.
+Along this article we are going to see how the workloads based on systemd
+could be stopped gracefully on kubernetes.</p>
 <p>To show what we want to transmit into this article, we are going to do
-some hands on by using a simple systemd workload which run an nginx
+a hands-on activities by using a simple systemd workload which run an nginx
 service; we will see the differences between using the workload in a container
 and using the workload in kubernetes. Finally we will see how to overcome the
-situation in kubernetes by using container lifecycle hook handlers.</p>
-<p>We are going to use <code>podman</code> and <code>openshift</code> for this article, but <code>docker</code>
-and <code>kubernetes</code> should works too.</p>
+situation in kubernetes by using container lifecycle hooks.</p>
+<p>We are going to use <code>podman</code> and <code>openshift</code> for this article.</p>
 <p><strong>Prerequisites</strong></p>
 <ul>
 <li><a href="https://podman.io/">Podman</a> is installed into your environment.</li>
@@ -186,10 +185,11 @@ Exiting container.
 [1]+  Done                    podman logs --follow &quot;<span class="cp">${</span><span class="n">CONTAINER_ID</span><span class="cp">}</span>&quot;
 </code></pre></div>
 
-<h1>What about kubernetes?</h1>
-<p>Let's try now our workload into kubernetes; you will need a kubernetes cluster
-or a Single Node Cluster (you can get one by using kcli or Code Ready Containers).
-To be more specific, I am going to use an OpenShift cluster.</p>
+<h1>What about Openshift?</h1>
+<p>Let's try now our workload into Openshift; you will need an Openshift cluster
+or a Single Node Openshift (you can get one by using
+<a href="https://github.com/karmab/kcli">kcli</a> or
+<a href="https://github.com/code-ready/crc">Code Ready Containers</a>).</p>
 <ul>
 <li>Push the image to your image registry:</li>
 </ul>
@@ -204,6 +204,16 @@ To be more specific, I am going to use an OpenShift cluster.</p>
 </ul>
 <div class="highlight"><pre><span></span><code>oc login -u kubeadmin https://api.crc.testing:6443
 oc new-project stopping-systemd
+</code></pre></div>
+
+<ul>
+<li>Create a serviceaccount with the necessary permissions for creating and
+  running the workload; this is, edit role and anyuid
+  SecurityContextConstraint:</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc create serviceaccount runasanyuid
+oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
+oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
 </code></pre></div>
 
 <ul>
@@ -227,16 +237,7 @@ oc new-project stopping-systemd
 </code></pre></div>
 
 <ul>
-<li>Run as cluster admin the below for creating a serviceaccount and allow it
-  to edit and execute workloads as anyuid by:</li>
-</ul>
-<div class="highlight"><pre><span></span><code>oc create serviceaccount runasanyuid
-oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
-oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
-</code></pre></div>
-
-<ul>
-<li>Create the workload into our cluster.</li>
+<li>Create the workload into our cluster by using the above serviceaccount:</li>
 </ul>
 <div class="highlight"><pre><span></span><code>oc create -f pod.yaml --as<span class="o">=</span>runasanyuid
 oc get all
@@ -254,14 +255,15 @@ oc get all
 <div class="highlight"><pre><span></span><code>oc delete -f pod.yaml
 </code></pre></div>
 
-<p>We get something like the below into the logs, but systemd and the pod is not stopped after a while:</p>
+<p>We get something like the below into the logs, but systemd and the pod is
+not stopped after a while:</p>
 <div class="highlight"><pre><span></span><code>pod &quot;systemd-nginx&quot; deleted
 systemd-nginx login: systemd v249.7-2.fc35 running in system mode (+PAM +AUDIT +SELINUX -APPARMOR +IMA +SMACK +SECCOMP +GCRYPT +GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified)
 Detected virtualization podman.
 Detected architecture x86-64.
 </code></pre></div>
 
-<p>We can see that systemd does not start the stop sequence as in the case of the
+<p>We can see that systemd does not begin the stop sequence as in the case of the
 container; this is because kubernetes does not passthrough the STOPSIGNAL
 instruction that is found into the Dockerfile. For fix this situation we will
 use the <a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">container lifecycle hooks</a>,
@@ -284,10 +286,10 @@ spec:
     command: <span class="o">[</span><span class="s2">&quot;/sbin/init&quot;</span><span class="o">]</span>
     tty: <span class="nb">true</span>
     privileged: <span class="nb">false</span>
-    lifecycle:  <span class="c1"># (1) The lifecycle hooks for this container</span>
-      preStop:  <span class="c1"># (2) This will be called befor stopping the container</span>
-        exec:   <span class="c1"># (3) It will be an exec command</span>
-          command: <span class="o">[</span><span class="s2">&quot;kill&quot;</span>, <span class="s2">&quot;-RTMIN+3&quot;</span>, <span class="s2">&quot;1&quot;</span><span class="o">]</span>   <span class="c1"># (4) The command to be executed</span>
+    lifecycle:  <span class="c1"># (1)</span>
+      preStop:  <span class="c1"># (2)</span>
+        exec:   <span class="c1"># (3)</span>
+          command: <span class="o">[</span><span class="s2">&quot;kill&quot;</span>, <span class="s2">&quot;-RTMIN+3&quot;</span>, <span class="s2">&quot;1&quot;</span><span class="o">]</span>   <span class="c1"># (4)</span>
 </code></pre></div>
 
 <ol>
@@ -295,7 +297,7 @@ spec:
 <li>Indicate that will be called before stopping the container.</li>
 <li>It will be an exec command.</li>
 <li>
-<p>The command to be executed.</p>
+<p>The command to be executed; the command should exist inside the container.</p>
 </li>
 <li>
 <p>Create the pod again:</p>
@@ -316,7 +318,7 @@ spec:
 <div class="highlight"><pre><span></span><code>oc delete -f pod.yaml
 </code></pre></div>
 
-<p>And now what we get immeditalty is the below:</p>
+<p>And finally what we get immeditalty is the below:</p>
 <div class="highlight"><pre><span></span><code><span class="n">pod</span><span class="w"> </span><span class="ss">&quot;systemd-nginx&quot;</span><span class="w"> </span><span class="n">deleted</span><span class="w"></span>
 <span class="n">systemd</span><span class="o">-</span><span class="n">nginx</span><span class="w"> </span><span class="nl">login</span><span class="p">:</span><span class="w"> </span><span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Removed</span><span class="w"> </span><span class="n">slice</span><span class="w"> </span><span class="n">Slice</span><span class="w"> </span><span class="o">/</span><span class="k">system</span><span class="o">/</span><span class="n">getty</span><span class="p">.</span><span class="w"></span>
 <span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Removed</span><span class="w"> </span><span class="n">slice</span><span class="w"> </span><span class="n">Slice</span><span class="w"> </span><span class="o">/</span><span class="k">system</span><span class="o">/</span><span class="n">modprobe</span><span class="p">.</span><span class="w"></span>

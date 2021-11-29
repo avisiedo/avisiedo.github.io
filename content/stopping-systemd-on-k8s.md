@@ -1,21 +1,20 @@
-Title: Stopping systemd workloads in k8s
+Title: Stopping systemd workloads in Openshift
 Date: 2021-11-28 12:00
 Category: kubernetes
 
 # Overview
 
-Are you using systemd workloads? then this article sure will catch your
-attention. Into this article we are going to see how the workloads based on
-systemd could be stopped gracefully.
+Are you using systemd workloads? then this article could be of your interest.
+Along this article we are going to see how the workloads based on systemd
+could be stopped gracefully on kubernetes.
 
 To show what we want to transmit into this article, we are going to do
-some hands on by using a simple systemd workload which run an nginx
+a hands-on activities by using a simple systemd workload which run an nginx
 service; we will see the differences between using the workload in a container
 and using the workload in kubernetes. Finally we will see how to overcome the
-situation in kubernetes by using container lifecycle hook handlers.
+situation in kubernetes by using container lifecycle hooks.
 
-We are going to use `podman` and `openshift` for this article, but `docker`
-and `kubernetes` should works too.
+We are going to use `podman` and `openshift` for this article.
 
 **Prerequisites**
 
@@ -95,11 +94,12 @@ Exiting container.
 [1]+  Done                    podman logs --follow "${CONTAINER_ID}"
 ```
 
-# What about kubernetes?
+# What about Openshift?
 
-Let's try now our workload into kubernetes; you will need a kubernetes cluster
-or a Single Node Cluster (you can get one by using kcli or Code Ready Containers).
-To be more specific, I am going to use an OpenShift cluster.
+Let's try now our workload into Openshift; you will need an Openshift cluster
+or a Single Node Openshift (you can get one by using
+[kcli](https://github.com/karmab/kcli) or
+[Code Ready Containers](https://github.com/code-ready/crc)).
 
 - Push the image to your image registry:
 
@@ -114,6 +114,16 @@ podman push "${IMG}"
 ```shell
 oc login -u kubeadmin https://api.crc.testing:6443
 oc new-project stopping-systemd
+```
+
+- Create a serviceaccount with the necessary permissions for creating and
+  running the workload; this is, edit role and anyuid
+  SecurityContextConstraint:
+
+```raw
+oc create serviceaccount runasanyuid
+oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
+oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
 ```
 
 - Create the pod.yaml file as the below:
@@ -136,16 +146,7 @@ spec:
     privileged: false
 ```
 
-- Run as cluster admin the below for creating a serviceaccount and allow it
-  to edit and execute workloads as anyuid by:
-
-```raw
-oc create serviceaccount runasanyuid
-oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
-oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
-```
-
-- Create the workload into our cluster.
+- Create the workload into our cluster by using the above serviceaccount:
 
 ```shell
 oc create -f pod.yaml --as=runasanyuid
@@ -164,7 +165,8 @@ oc logs pod/systemd-nginx -f &
 oc delete -f pod.yaml
 ```
 
-We get something like the below into the logs, but systemd and the pod is not stopped after a while:
+We get something like the below into the logs, but systemd and the pod is
+not stopped after a while:
 
 ```raw
 pod "systemd-nginx" deleted
@@ -173,7 +175,7 @@ Detected virtualization podman.
 Detected architecture x86-64.
 ```
 
-We can see that systemd does not start the stop sequence as in the case of the
+We can see that systemd does not begin the stop sequence as in the case of the
 container; this is because kubernetes does not passthrough the STOPSIGNAL
 instruction that is found into the Dockerfile. For fix this situation we will
 use the [container lifecycle hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/),
@@ -197,16 +199,16 @@ spec:
     command: ["/sbin/init"]
     tty: true
     privileged: false
-    lifecycle:  # (1) The lifecycle hooks for this container
-      preStop:  # (2) This will be called befor stopping the container
-        exec:   # (3) It will be an exec command
-          command: ["kill", "-RTMIN+3", "1"]   # (4) The command to be executed
+    lifecycle:  # (1)
+      preStop:  # (2)
+        exec:   # (3)
+          command: ["kill", "-RTMIN+3", "1"]   # (4)
 ```
 
   1. The lifecycle hooks for that container.
   2. Indicate that will be called before stopping the container.
   3. It will be an exec command.
-  4. The command to be executed.
+  4. The command to be executed; the command should exist inside the container.
 
 - Create the pod again:
 
@@ -226,7 +228,7 @@ oc logs pod/systemd-nginx -f &
 oc delete -f pod.yaml
 ```
 
-And now what we get immeditalty is the below:
+And finally what we get immeditalty is the below:
 
 ```raw
 pod "systemd-nginx" deleted

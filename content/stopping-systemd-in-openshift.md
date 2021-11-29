@@ -1,5 +1,5 @@
 Title: Stopping systemd workloads in Openshift
-Date: 2021-11-28 12:00
+Date: 2021-11-29 17:00
 Category: kubernetes
 
 # Overview

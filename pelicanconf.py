@@ -4,7 +4,7 @@ from __future__ import unicode_literals
 
 AUTHOR = 'tinyeng'
 SITENAME = 'Under the hood'
-SITEURL = ''
+SITEURL = 'https://avisiedo.github.io/output'
 
 PATH = 'content'
 

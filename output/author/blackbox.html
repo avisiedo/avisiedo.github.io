@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="generator" content="Pelican" />
+        <title>Under the hood - blackbox</title>
+        <link rel="stylesheet" href="/theme/css/main.css" />
+</head>
+
+<body id="index" class="home">
+        <header id="banner" class="body">
+                <h1><a href="/">Under the hood</a></h1>
+                <nav><ul>
+                    <li><a href="/category/kubernetes.html">kubernetes</a></li>
+                </ul></nav>
+        </header><!-- /#banner -->
+
+            <aside id="featured" class="body">
+                <article>
+                    <h1 class="entry-title"><a href="/stopping-systemd-workloads-in-k8s.html">Stopping systemd workloads in k8s</a></h1>
+<footer class="post-info">
+        <abbr class="published" title="2021-11-28T12:00:00+01:00">
+                Published: Sun 28 November 2021
+        </abbr>
+
+        <address class="vcard author">
+                By                         <a class="url fn" href="/author/blackbox.html">blackbox</a>
+        </address>
+<p>In <a href="/category/kubernetes.html">kubernetes</a>.</p>
+
+</footer><!-- /.post-info --><h1>Overview</h1>
+<p>Are you using systemd workloads? then this article sure will catch your
+attention. Into this article we are going to see how the workloads based on
+systemd could be stopped gracefully.</p>
+<p>To show what we want to transmit into this article, we are going to do
+some hands on by using a simple systemd workload which run an nginx
+service; we will see the differences between using the workload in a container
+and using the workload in kubernetes. Finally we will see how to overcome the
+situation in kubernetes by using container lifecycle hook handlers.</p>
+<p>We are going to use <code>podman</code> and <code>openshift</code> for this article, but <code>docker</code>
+and <code>kubernetes</code> should works too.</p>
+<p><strong>Prerequisites</strong></p>
+<ul>
+<li><a href="https://podman.io/">Podman</a> is installed into your environment.</li>
+<li><a href="https://docs.openshift.com/container-platform/4.9/cli_reference/openshift_cli/getting-started-cli.html#installing-openshift-cli">Openshift client</a> is installed into your environment.</li>
+<li>You have access to an Openshift cluster.</li>
+</ul>
+<blockquote>
+<p>You can install a SNO by using:</p>
+<ul>
+<li><a href="https://github.com/karmab/kcli">kcli</a>.</li>
+<li><a href="https://github.com/code-ready/crc">Code Ready Containers</a>.</li>
+</ul>
+</blockquote>
+<h1>Defining the workload</h1>
+<p>We are going to use the following simple Dockerfile to build our workload.</p>
+<div class="highlight"><pre><span></span><code><span class="k">FROM</span> <span class="s">quay.io/fedora/fedora:35</span>
+<span class="k">RUN</span> dnf -y install nginx <span class="se">\</span>
+    <span class="o">&amp;&amp;</span> dnf clean all <span class="se">\</span>
+    <span class="o">&amp;&amp;</span> systemctl <span class="nb">enable</span> nginx
+<span class="k">EXPOSE</span><span class="s"> 80</span>
+<span class="c"># https://docs.docker.com/engine/reference/builder/#stopsignal</span>
+<span class="k">STOPSIGNAL</span><span class="s"> SIGRTMIN+3</span>
+<span class="k">ENTRYPOINT</span> <span class="p">[</span><span class="s2">&quot;/sbin/init&quot;</span><span class="p">]</span>
+</code></pre></div>
+
+<p>Now we build the container workload by:</p>
+<div class="highlight"><pre><span></span><code>podman build -t local/systemd:nginx -f Dockerfile .
+</code></pre></div>
+
+<h1>Runnning container with podman</h1>
+<p>Firstly, let's see what happens with the workload when running with podman or
+docker:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">CONTAINER_ID</span><span class="o">=</span><span class="k">$(</span> podman run -d local/systemd:nginx <span class="k">)</span>
+podman logs <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span> <span class="p">&amp;</span>
+podman stop <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<p>We could see systemd does not stop when we try to stop the container, this is
+because the signal we need to stop systemd is a different one than the default
+that the container manager try to send (SIGTERM). To indicate a diffent signal
+we use the <code>STOPSIGNAL</code> instruction into the Dockerfile
+(<a href="https://docs.docker.com/engine/reference/builder/#stopsignal">more info here</a>.
+And in the case of systemd, the right signal to send for stopping it is
+the SIGRETMIN+3 signal as we can read <a href="https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3">here</a>.
+So then, how does it show? well, we only have to add this line to our
+Dockerfile:</p>
+<div class="highlight"><pre><span></span><code><span class="k">STOPSIGNAL</span><span class="s"> SIGRTMIN+3</span>
+</code></pre></div>
+
+<p>And now we stop and remove the container:</p>
+<div class="highlight"><pre><span></span><code>podman <span class="nb">kill</span> --signal RTMIN+3 <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span>
+podman rm <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<blockquote>
+<p>The container manager send the signal only to the PID 1 process.</p>
+</blockquote>
+<p>And rebuild the container with the changes, and restart again:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span> <span class="nv">IMG</span><span class="o">=</span><span class="s2">&quot;quay.io/avisied0/demos:stopping-systemd&quot;</span>
+podman build -t <span class="s2">&quot;</span><span class="si">${</span><span class="nv">IMG</span><span class="si">}</span><span class="s2">&quot;</span> -f Dockerfile .
+<span class="nv">CONTAINER_ID</span><span class="o">=</span><span class="k">$(</span> podman run -d local/systemd:nginx <span class="k">)</span>
+podman logs <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span> <span class="p">&amp;</span>
+podman stop <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<p>Now we can see that systemd stop properly.</p>
+<h1>What about kubernetes?</h1>
+<p>Let's try know our workload into kubernetes; you will need a kubernetes cluster
+or a Single Node Cluster (you can get one by using kcli or Code Ready Containers).</p>
+<ol>
+<li>Access your cluster as a no privileged user:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc login -u developer https://api.crc-testing.local
+</code></pre></div>
+
+<ol>
+<li>Create the pod.yaml file as the below:</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="nt">apiversion</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">core</span>
+<span class="nt">kind</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">Pod</span>
+<span class="nt">metadata</span><span class="p">:</span>
+  <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">systemd-nginx</span>
+  <span class="nt">labels</span><span class="p">:</span>
+    <span class="nt">app</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nginx</span>
+<span class="nt">spec</span><span class="p">:</span>
+  <span class="nt">containers</span><span class="p">:</span>
+  <span class="p p-Indicator">-</span> <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nginx</span>
+    <span class="nt">image</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">quay.io/avisied0/demos:stopping-systemd</span>
+</code></pre></div>
+
+<ol>
+<li>Create the workload into our cluster.</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc create -f pod.yaml
+oc get all
+</code></pre></div>
+
+<ol>
+<li>Print out and follow the logs in the background.</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc logs pod/systemd-nginx -f <span class="p">&amp;</span>
+</code></pre></div>
+
+<ol>
+<li>Try to stop the workload.</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc delete -d pod.yaml
+</code></pre></div>
+
+<p>We can see that systemd does not start the stop sequence as in the case of the
+container; this is because kubernetes does not passthrough the STOPSIGNAL
+instruction that is found into the Dockerfile. For fix this situation we will
+use the <a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">container lifecycle hooks</a>.</p>
+<ol>
+<li>Update the <code>pod.yaml</code> file with the content below:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>apiversion: core
+kind: Pod
+metadata:
+  name: systemd-nginx
+  labels:
+    app: nginx
+spec:
+  containers:
+  - name: nginx
+    image: quay.io/avisied0/demos:stopping-systemd
+    lifecycle:
+      preStop:
+        exec:
+          command: <span class="o">[</span><span class="s2">&quot;kill&quot;</span>, <span class="s2">&quot;-s&quot;</span>, <span class="s2">&quot;SIGRTMIN+3&quot;</span>, <span class="s2">&quot;1&quot;</span><span class="o">]</span>
+</code></pre></div>
+
+<ol>
+<li>Create the pod again:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc create -f pod.yaml
+</code></pre></div>
+
+<ol>
+<li>Print out and follow the logs in the background:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc logs pod/systemd-nginx -f <span class="p">&amp;</span>
+</code></pre></div>
+
+<ol>
+<li>Now we delete the pod:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc delete -f pod.yaml
+</code></pre></div>
+
+<h1>References</h1>
+<ul>
+<li><a href="https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3">Systemd SIGRTMIN+3</a>.</li>
+<li><a href="https://docs.docker.com/engine/reference/builder/#stopsignal">Dockerfile - STOPSIGNAL</a>.</li>
+<li><a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">Container Lifecycle Hooks</a>.</li>
+<li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/attach-handler-lifecycle-event/">Attach Handlers to Container Lifecycle Events</a>.</li>
+</ul>                </article>
+            </aside><!-- /#featured -->
+        <section id="extras" class="body">
+                <div class="blogroll">
+                        <h2>links</h2>
+                        <ul>
+                            <li><a href="http://getpelican.com/">Pelican</a></li>
+                            <li><a href="http://python.org/">Python.org</a></li>
+                            <li><a href="http://jinja.pocoo.org/">Jinja2</a></li>
+                            <li><a href="#">You can modify those links in your config file</a></li>
+                        </ul>
+                </div><!-- /.blogroll -->
+                <div class="social">
+                        <h2>social</h2>
+                        <ul>
+
+                            <li><a href="#">You can add links in your config file</a></li>
+                            <li><a href="#">Another social link</a></li>
+                        </ul>
+                </div><!-- /.social -->
+        </section><!-- /#extras -->
+
+        <footer id="contentinfo" class="body">
+                <address id="about" class="vcard body">
+                Proudly powered by <a href="https://getpelican.com/">Pelican</a>, which takes great advantage of <a href="https://www.python.org/">Python</a>.
+                </address><!-- /#about -->
+
+                <p>The theme is by <a href="https://www.smashingmagazine.com/2009/08/designing-a-html-5-layout-from-scratch/">Smashing Magazine</a>, thanks!</p>
+        </footer><!-- /#contentinfo -->
+
+</body>
+</html>

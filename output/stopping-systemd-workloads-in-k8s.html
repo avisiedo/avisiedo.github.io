@@ -1,0 +1,452 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="" />
+
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,400;0,700;1,400&family=Source+Sans+Pro:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" type="text/css" href="/theme/stylesheet/style.min.css">
+
+
+    <link id="pygments-light-theme" rel="stylesheet" type="text/css"
+          href="/theme/pygments/github.min.css">
+
+
+  <link rel="stylesheet" type="text/css" href="/theme/font-awesome/css/fontawesome.css">
+  <link rel="stylesheet" type="text/css" href="/theme/font-awesome/css/brands.css">
+  <link rel="stylesheet" type="text/css" href="/theme/font-awesome/css/solid.css">
+
+
+
+
+
+
+
+<meta name="author" content="tinyeng" />
+<meta name="description" content="Overview Are you using systemd workloads? then this article sure will catch your attention. Into this article we are going to see how the workloads based on systemd could be stopped gracefully. To show what we want to transmit into this article, we are going to do some hands on …" />
+<meta name="keywords" content="">
+
+
+<meta property="og:site_name" content="Under the hood"/>
+<meta property="og:title" content="Stopping systemd workloads in k8s"/>
+<meta property="og:description" content="Overview Are you using systemd workloads? then this article sure will catch your attention. Into this article we are going to see how the workloads based on systemd could be stopped gracefully. To show what we want to transmit into this article, we are going to do some hands on …"/>
+<meta property="og:locale" content="en_US"/>
+<meta property="og:url" content="/stopping-systemd-workloads-in-k8s.html"/>
+<meta property="og:type" content="article"/>
+<meta property="article:published_time" content="2021-11-28 12:00:00+01:00"/>
+<meta property="article:modified_time" content=""/>
+<meta property="article:author" content="/author/tinyeng.html">
+<meta property="article:section" content="kubernetes"/>
+<meta property="og:image" content="">
+
+  <title>Under the hood &ndash; Stopping systemd workloads in k8s</title>
+
+</head>
+<body class="light-theme">
+  <aside>
+    <div>
+      <a href="">
+        <img src="/theme/img/profile.png" alt="" title="">
+      </a>
+
+      <h1>
+        <a href=""></a>
+      </h1>
+
+
+
+      <nav>
+        <ul class="list">
+
+
+
+            <li>
+              <a target="_self" href="https://avisiedo.github.io" >Under The Hood</a>
+            </li>
+            <li>
+              <a target="_self" href="http://getpelican.com/" >Pelican</a>
+            </li>
+        </ul>
+      </nav>
+
+      <ul class="social">
+          <li>
+            <a  class="sc-You can add links in your config file" href="#" target="_blank">
+              <i class="fab fa-You can add links in your config file"></i>
+            </a>
+          </li>
+          <li>
+            <a  class="sc-Another social link" href="#" target="_blank">
+              <i class="fab fa-Another social link"></i>
+            </a>
+          </li>
+      </ul>
+    </div>
+
+  </aside>
+  <main>
+
+
+<article class="single">
+  <header>
+      
+    <h1 id="stopping-systemd-workloads-in-k8s">Stopping systemd workloads in k8s</h1>
+    <p>
+      Posted on Sun 28 November 2021 in <a href="/category/kubernetes.html">kubernetes</a>
+
+    </p>
+  </header>
+
+
+  <div>
+    <h1>Overview</h1>
+<p>Are you using systemd workloads? then this article sure will catch your
+attention. Into this article we are going to see how the workloads based on
+systemd could be stopped gracefully.</p>
+<p>To show what we want to transmit into this article, we are going to do
+some hands on by using a simple systemd workload which run an nginx
+service; we will see the differences between using the workload in a container
+and using the workload in kubernetes. Finally we will see how to overcome the
+situation in kubernetes by using container lifecycle hook handlers.</p>
+<p>We are going to use <code>podman</code> and <code>openshift</code> for this article, but <code>docker</code>
+and <code>kubernetes</code> should works too.</p>
+<p><strong>Prerequisites</strong></p>
+<ul>
+<li><a href="https://podman.io/">Podman</a> is installed into your environment.</li>
+<li><a href="https://docs.openshift.com/container-platform/4.9/cli_reference/openshift_cli/getting-started-cli.html#installing-openshift-cli">Openshift client</a> is installed into your environment.</li>
+<li>You have access to an Openshift cluster.</li>
+</ul>
+<blockquote>
+<p>You can install a SNO by using:</p>
+<ul>
+<li><a href="https://github.com/karmab/kcli">kcli</a>.</li>
+<li><a href="https://github.com/code-ready/crc">Code Ready Containers</a>.</li>
+</ul>
+</blockquote>
+<h1>Defining the workload</h1>
+<p>We are going to use the following simple Dockerfile to build our workload.</p>
+<div class="highlight"><pre><span></span><code><span class="k">FROM</span> <span class="s">quay.io/fedora/fedora:35</span>
+<span class="k">RUN</span> dnf -y install procps nginx <span class="se">\</span>
+    <span class="o">&amp;&amp;</span> dnf clean all <span class="se">\</span>
+    <span class="o">&amp;&amp;</span> systemctl <span class="nb">enable</span> nginx
+<span class="k">EXPOSE</span><span class="s"> 80</span>
+<span class="c"># https://docs.docker.com/engine/reference/builder/#stopsignal</span>
+<span class="c"># https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3</span>
+<span class="k">STOPSIGNAL</span><span class="s"> SIGRTMIN+3</span>
+<span class="k">ENTRYPOINT</span> <span class="p">[</span><span class="s2">&quot;/sbin/init&quot;</span><span class="p">]</span>
+</code></pre></div>
+
+<blockquote>
+<p>STOPSIGNAL instruction is not needed by podman as it detects that
+the signal to be sent should be SIGRTMIN+3 when <code>podman stop</code> is
+executed.</p>
+</blockquote>
+<p>Now we build the container workload by:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span> <span class="nv">IMG</span><span class="o">=</span><span class="s2">&quot;quay.io/avisied0/demos:stopping-systemd&quot;</span>
+podman build -t <span class="s2">&quot;</span><span class="si">${</span><span class="nv">IMG</span><span class="si">}</span><span class="s2">&quot;</span> -f Dockerfile .
+</code></pre></div>
+
+<h1>Runnning container with podman</h1>
+<p>Firstly, let's see what happens with the workload when running with podman or
+docker:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">CONTAINER_ID</span><span class="o">=</span><span class="k">$(</span> podman run -it -d <span class="s2">&quot;</span><span class="si">${</span><span class="nv">IMG</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">)</span>
+podman logs --follow <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span> <span class="p">&amp;</span>
+podman stop <span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONTAINER_ID</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<p>And we get a result like the below:</p>
+<div class="highlight"><pre><span></span><code>[  OK  ] Removed slice Slice /system/getty.
+[  OK  ] Removed slice Slice /system/modprobe.
+[  OK  ] Stopped target Graphical Interface.
+[  OK  ] Stopped target Multi-User System.
+[  OK  ] Stopped target Login Prompts.
+[  OK  ] Stopped target Timer Units.
+[  OK  ] Stopped dnf makecache --timer.
+[  OK  ] Stopped Daily rotation of log files.
+[  OK  ] Stopped Daily Cleanup of Temporary Directories.
+.
+.
+.
+[  OK  ] Stopped target Swaps.
+[  OK  ] Reached target System Shutdown.
+[  OK  ] Reached target Unmount All Filesystems.
+[  OK  ] Reached target Late Shutdown Services.
+         Starting System Halt...
+Sending SIGTERM to remaining processes...
+Sending SIGKILL to remaining processes...
+All filesystems, swaps, loop devices, MD devices and DM devices detached.
+Halting system.
+Exiting container.
+
+[1]+  Done                    podman logs --follow &quot;<span class="cp">${</span><span class="n">CONTAINER_ID</span><span class="cp">}</span>&quot;
+</code></pre></div>
+
+<h1>What about kubernetes?</h1>
+<p>Let's try now our workload into kubernetes; you will need a kubernetes cluster
+or a Single Node Cluster (you can get one by using kcli or Code Ready Containers).
+To be more specific, I am going to use an OpenShift cluster.</p>
+<ul>
+<li>Push the image to your image registry:</li>
+</ul>
+<div class="highlight"><pre><span></span><code>podman push <span class="s2">&quot;</span><span class="si">${</span><span class="nv">IMG</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<blockquote>
+<p>Check that the repository is public for pulling the image.</p>
+</blockquote>
+<ul>
+<li>Access your cluster as a cluster admin and create a new project:.</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc login -u kubeadmin https://api.crc.testing:6443
+oc new-project stopping-systemd
+</code></pre></div>
+
+<ul>
+<li>Create the pod.yaml file as the below:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="nt">apiVersion</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">v1</span>
+<span class="nt">kind</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">Pod</span>
+<span class="nt">metadata</span><span class="p">:</span>
+  <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">systemd-nginx</span>
+  <span class="nt">labels</span><span class="p">:</span>
+    <span class="nt">app</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nginx</span>
+<span class="nt">spec</span><span class="p">:</span>
+  <span class="nt">serviceAccount</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">runasanyuid</span>
+  <span class="nt">containers</span><span class="p">:</span>
+  <span class="p p-Indicator">-</span> <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nginx</span>
+    <span class="nt">image</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">quay.io/avisied0/demos:stopping-systemd</span>
+    <span class="nt">imagePullPolicy</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">Always</span>
+    <span class="nt">command</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="s">&quot;/sbin/init&quot;</span><span class="p p-Indicator">]</span>
+    <span class="nt">tty</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">true</span>
+    <span class="nt">privileged</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+
+<ul>
+<li>Run as cluster admin the below for creating a serviceaccount and allow it
+  to edit and execute workloads as anyuid by:</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc create serviceaccount runasanyuid
+oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
+oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
+</code></pre></div>
+
+<ul>
+<li>Create the workload into our cluster.</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc create -f pod.yaml --as<span class="o">=</span>runasanyuid
+oc get all
+</code></pre></div>
+
+<ul>
+<li>Print out and follow the logs in the background.</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc logs pod/systemd-nginx -f <span class="p">&amp;</span>
+</code></pre></div>
+
+<ul>
+<li>Try to stop the workload.</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc delete -f pod.yaml
+</code></pre></div>
+
+<p>We get something like the below into the logs, but systemd and the pod is not stopped after a while:</p>
+<div class="highlight"><pre><span></span><code>pod &quot;systemd-nginx&quot; deleted
+systemd-nginx login: systemd v249.7-2.fc35 running in system mode (+PAM +AUDIT +SELINUX -APPARMOR +IMA +SMACK +SECCOMP +GCRYPT +GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified)
+Detected virtualization podman.
+Detected architecture x86-64.
+</code></pre></div>
+
+<p>We can see that systemd does not start the stop sequence as in the case of the
+container; this is because kubernetes does not passthrough the STOPSIGNAL
+instruction that is found into the Dockerfile. For fix this situation we will
+use the <a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">container lifecycle hooks</a>,
+and we will explicitely send the SIGRTMIN+3 to the PID 1 (systemd).</p>
+<ul>
+<li>Update the <code>pod.yaml</code> file with the content below:</li>
+</ul>
+<div class="highlight"><pre><span></span><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: systemd-nginx
+  labels:
+    app: nginx
+spec:
+  serviceAccount: runasanyuid
+  containers:
+  - name: nginx
+    image: quay.io/avisied0/demos:stopping-systemd
+    imagePullPolicy: Always
+    command: <span class="o">[</span><span class="s2">&quot;/sbin/init&quot;</span><span class="o">]</span>
+    tty: <span class="nb">true</span>
+    privileged: <span class="nb">false</span>
+    lifecycle:  <span class="c1"># (1) The lifecycle hooks for this container</span>
+      preStop:  <span class="c1"># (2) This will be called befor stopping the container</span>
+        exec:   <span class="c1"># (3) It will be an exec command</span>
+          command: <span class="o">[</span><span class="s2">&quot;kill&quot;</span>, <span class="s2">&quot;-RTMIN+3&quot;</span>, <span class="s2">&quot;1&quot;</span><span class="o">]</span>   <span class="c1"># (4) The command to be executed</span>
+</code></pre></div>
+
+<ol>
+<li>The lifecycle hooks for that container.</li>
+<li>Indicate that will be called before stopping the container.</li>
+<li>It will be an exec command.</li>
+<li>
+<p>The command to be executed.</p>
+</li>
+<li>
+<p>Create the pod again:</p>
+</li>
+</ol>
+<div class="highlight"><pre><span></span><code>oc create -f pod.yaml --as<span class="o">=</span>runasanyuid
+</code></pre></div>
+
+<ul>
+<li>Print out and follow the logs in the background:</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc logs pod/systemd-nginx -f <span class="p">&amp;</span>
+</code></pre></div>
+
+<ul>
+<li>Now we delete the pod:</li>
+</ul>
+<div class="highlight"><pre><span></span><code>oc delete -f pod.yaml
+</code></pre></div>
+
+<p>And now what we get immeditalty is the below:</p>
+<div class="highlight"><pre><span></span><code><span class="n">pod</span><span class="w"> </span><span class="ss">&quot;systemd-nginx&quot;</span><span class="w"> </span><span class="n">deleted</span><span class="w"></span>
+<span class="n">systemd</span><span class="o">-</span><span class="n">nginx</span><span class="w"> </span><span class="nl">login</span><span class="p">:</span><span class="w"> </span><span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Removed</span><span class="w"> </span><span class="n">slice</span><span class="w"> </span><span class="n">Slice</span><span class="w"> </span><span class="o">/</span><span class="k">system</span><span class="o">/</span><span class="n">getty</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Removed</span><span class="w"> </span><span class="n">slice</span><span class="w"> </span><span class="n">Slice</span><span class="w"> </span><span class="o">/</span><span class="k">system</span><span class="o">/</span><span class="n">modprobe</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Graphical</span><span class="w"> </span><span class="n">Interface</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Multi</span><span class="o">-</span><span class="k">User</span><span class="w"> </span><span class="k">System</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Login</span><span class="w"> </span><span class="n">Prompts</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Timer</span><span class="w"> </span><span class="n">Units</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">dnf</span><span class="w"> </span><span class="n">makecache</span><span class="w"> </span><span class="o">--</span><span class="n">timer</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Daily</span><span class="w"> </span><span class="n">rotation</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nf">log</span><span class="w"> </span><span class="n">files</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Daily</span><span class="w"> </span><span class="n">Cleanup</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="k">Temporary</span><span class="w"> </span><span class="n">Directories</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Closed</span><span class="w"> </span><span class="n">Process</span><span class="w"> </span><span class="n">Core</span><span class="w"> </span><span class="k">Dump</span><span class="w"> </span><span class="n">Socket</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">Console</span><span class="w"> </span><span class="n">Getty</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">The</span><span class="w"> </span><span class="n">nginx</span><span class="w"> </span><span class="n">HTTP</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="nf">reverse</span><span class="w"> </span><span class="n">proxy</span><span class="w"> </span><span class="n">server</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="k">User</span><span class="w"> </span><span class="n">Login</span><span class="w"> </span><span class="n">Management</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Console</span><span class="w"> </span><span class="n">Getty</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">Permit</span><span class="w"> </span><span class="k">User</span><span class="w"> </span><span class="n">Sessions</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="k">User</span><span class="w"> </span><span class="n">Login</span><span class="w"> </span><span class="n">Management</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Permit</span><span class="w"> </span><span class="k">User</span><span class="w"> </span><span class="n">Sessions</span><span class="p">.</span><span class="w"></span>
+<span class="n">systemd</span><span class="w"> </span><span class="n">v249</span><span class="mf">.7</span><span class="o">-</span><span class="mf">2.</span><span class="n">fc35</span><span class="w"> </span><span class="n">running</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="k">system</span><span class="w"> </span><span class="n">mode</span><span class="w"> </span><span class="p">(</span><span class="o">+</span><span class="n">PAM</span><span class="w"> </span><span class="o">+</span><span class="n">AUDIT</span><span class="w"> </span><span class="o">+</span><span class="n">SELINUX</span><span class="w"> </span><span class="o">-</span><span class="n">APPARMOR</span><span class="w"> </span><span class="o">+</span><span class="n">IMA</span><span class="w"> </span><span class="o">+</span><span class="n">SMACK</span><span class="w"> </span><span class="o">+</span><span class="n">SECCOMP</span><span class="w"> </span><span class="o">+</span><span class="n">GCRYPT</span><span class="w"> </span><span class="o">+</span><span class="n">GNUTLS</span><span class="w"> </span><span class="o">+</span><span class="n">OPENSSL</span><span class="w"> </span><span class="o">+</span><span class="n">ACL</span><span class="w"> </span><span class="o">+</span><span class="n">BLKID</span><span class="w"> </span><span class="o">+</span><span class="n">CURL</span><span class="w"> </span><span class="o">+</span><span class="n">ELFUTILS</span><span class="w"> </span><span class="o">+</span><span class="n">FIDO2</span><span class="w"> </span><span class="o">+</span><span class="n">IDN2</span><span class="w"> </span><span class="o">-</span><span class="n">IDN</span><span class="w"> </span><span class="o">+</span><span class="n">IPTC</span><span class="w"> </span><span class="o">+</span><span class="n">KMOD</span><span class="w"> </span><span class="o">+</span><span class="n">LIBCRYPTSETUP</span><span class="w"> </span><span class="o">+</span><span class="n">LIBFDISK</span><span class="w"> </span><span class="o">+</span><span class="n">PCRE2</span><span class="w"> </span><span class="o">+</span><span class="n">PWQUALITY</span><span class="w"> </span><span class="o">+</span><span class="n">P11KIT</span><span class="w"> </span><span class="o">+</span><span class="n">QRENCODE</span><span class="w"> </span><span class="o">+</span><span class="n">BZIP2</span><span class="w"> </span><span class="o">+</span><span class="n">LZ4</span><span class="w"> </span><span class="o">+</span><span class="n">XZ</span><span class="w"> </span><span class="o">+</span><span class="n">ZLIB</span><span class="w"> </span><span class="o">+</span><span class="n">ZSTD</span><span class="w"> </span><span class="o">+</span><span class="n">XKBCOMMON</span><span class="w"> </span><span class="o">+</span><span class="n">UTMP</span><span class="w"> </span><span class="o">+</span><span class="n">SYSVINIT</span><span class="w"> </span><span class="k">default</span><span class="o">-</span><span class="n">hierarchy</span><span class="o">=</span><span class="n">unified</span><span class="p">)</span><span class="w"></span>
+<span class="n">Detected</span><span class="w"> </span><span class="n">virtualization</span><span class="w"> </span><span class="n">podman</span><span class="p">.</span><span class="w"></span>
+<span class="n">Detected</span><span class="w"> </span><span class="n">architecture</span><span class="w"> </span><span class="n">x86</span><span class="o">-</span><span class="mf">64.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">The</span><span class="w"> </span><span class="n">nginx</span><span class="w"> </span><span class="n">HTTP</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="nf">reverse</span><span class="w"> </span><span class="n">proxy</span><span class="w"> </span><span class="n">server</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Network</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="n">Online</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="k">Host</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">Network</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">Lookups</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Remote</span><span class="w"> </span><span class="k">File</span><span class="w"> </span><span class="n">Systems</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">Home</span><span class="w"> </span><span class="n">Area</span><span class="w"> </span><span class="n">Activation</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">Network</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">Resolution</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Network</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">Resolution</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Home</span><span class="w"> </span><span class="n">Area</span><span class="w"> </span><span class="n">Activation</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">Home</span><span class="w"> </span><span class="n">Area</span><span class="w"> </span><span class="n">Manager</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Home</span><span class="w"> </span><span class="n">Area</span><span class="w"> </span><span class="n">Manager</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Basic</span><span class="w"> </span><span class="k">System</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="k">Path</span><span class="w"> </span><span class="n">Units</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Dispatch</span><span class="w"> </span><span class="n">Password</span><span class="w"> </span><span class="err">…</span><span class="n">ts</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">Console</span><span class="w"> </span><span class="n">Directory</span><span class="w"> </span><span class="n">Watch</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Forward</span><span class="w"> </span><span class="n">Password</span><span class="w"> </span><span class="n">R</span><span class="err">…</span><span class="n">uests</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">Wall</span><span class="w"> </span><span class="n">Directory</span><span class="w"> </span><span class="n">Watch</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Slice</span><span class="w"> </span><span class="n">Units</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Removed</span><span class="w"> </span><span class="n">slice</span><span class="w"> </span><span class="k">User</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="k">Session</span><span class="w"> </span><span class="n">Slice</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Socket</span><span class="w"> </span><span class="n">Units</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">D</span><span class="o">-</span><span class="n">Bus</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Message</span><span class="w"> </span><span class="n">Bus</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">D</span><span class="o">-</span><span class="n">Bus</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Message</span><span class="w"> </span><span class="n">Bus</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Closed</span><span class="w"> </span><span class="n">D</span><span class="o">-</span><span class="n">Bus</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Message</span><span class="w"> </span><span class="n">Bus</span><span class="w"> </span><span class="n">Socket</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Initialization</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="k">Local</span><span class="w"> </span><span class="n">Verity</span><span class="w"> </span><span class="n">Protected</span><span class="w"> </span><span class="n">Volumes</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="k">Update</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="n">Completed</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Rebuild</span><span class="w"> </span><span class="k">Dynamic</span><span class="w"> </span><span class="n">Linker</span><span class="w"> </span><span class="n">Cache</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Rebuild</span><span class="w"> </span><span class="n">Journal</span><span class="w"> </span><span class="k">Catalog</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Stopping</span><span class="w"> </span><span class="n">Record</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Boot</span><span class="o">/</span><span class="k">Shutdown</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">UTMP</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">Record</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Boot</span><span class="o">/</span><span class="k">Shutdown</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">UTMP</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="k">Create</span><span class="w"> </span><span class="n">Volatile</span><span class="w"> </span><span class="n">Files</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">Directories</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="k">Local</span><span class="w"> </span><span class="k">File</span><span class="w"> </span><span class="n">Systems</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">hostname</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">hosts</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">resolv</span><span class="p">.</span><span class="n">conf</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">run</span><span class="o">/</span><span class="n">lock</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">run</span><span class="o">/</span><span class="n">secrets</span><span class="o">/</span><span class="n">kubernetes</span><span class="p">.</span><span class="n">io</span><span class="o">/</span><span class="n">serviceaccount</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="k">Temporary</span><span class="w"> </span><span class="n">Directory</span><span class="w"> </span><span class="o">/</span><span class="n">tmp</span><span class="p">...</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="o">/</span><span class="nf">var</span><span class="o">/</span><span class="nf">log</span><span class="o">/</span><span class="n">journal</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="k">Create</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Users</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">hosts</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">run</span><span class="o">/</span><span class="n">lock</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">run</span><span class="o">/</span><span class="n">sec</span><span class="err">…</span><span class="o">/</span><span class="n">kubernetes</span><span class="p">.</span><span class="n">io</span><span class="o">/</span><span class="n">serviceaccount</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">run</span><span class="o">/</span><span class="n">secrets</span><span class="p">...</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">resolv</span><span class="p">.</span><span class="n">conf</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="k">Temporary</span><span class="w"> </span><span class="n">Directory</span><span class="w"> </span><span class="o">/</span><span class="n">tmp</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="o">/</span><span class="nf">var</span><span class="o">/</span><span class="nf">log</span><span class="o">/</span><span class="n">journal</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">hostname</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">FAILED</span><span class="o">]</span><span class="w"> </span><span class="n">Failed</span><span class="w"> </span><span class="n">unmounting</span><span class="w"> </span><span class="o">/</span><span class="n">run</span><span class="o">/</span><span class="n">secrets</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Stopped</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Swaps</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Reached</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="k">Shutdown</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Reached</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Unmount</span><span class="w"> </span><span class="ow">All</span><span class="w"> </span><span class="n">Filesystems</span><span class="p">.</span><span class="w"></span>
+<span class="o">[</span><span class="n">  OK  </span><span class="o">]</span><span class="w"> </span><span class="n">Reached</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="n">Late</span><span class="w"> </span><span class="k">Shutdown</span><span class="w"> </span><span class="n">Services</span><span class="p">.</span><span class="w"></span>
+<span class="w">         </span><span class="n">Starting</span><span class="w"> </span><span class="k">System</span><span class="w"> </span><span class="n">Halt</span><span class="p">...</span><span class="w"></span>
+<span class="n">Sending</span><span class="w"> </span><span class="n">SIGTERM</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">remaining</span><span class="w"> </span><span class="n">processes</span><span class="p">...</span><span class="w"></span>
+<span class="n">Sending</span><span class="w"> </span><span class="n">SIGKILL</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">remaining</span><span class="w"> </span><span class="n">processes</span><span class="p">...</span><span class="w"></span>
+<span class="ow">All</span><span class="w"> </span><span class="n">filesystems</span><span class="p">,</span><span class="w"> </span><span class="n">swaps</span><span class="p">,</span><span class="w"> </span><span class="n">loop</span><span class="w"> </span><span class="n">devices</span><span class="p">,</span><span class="w"> </span><span class="n">MD</span><span class="w"> </span><span class="n">devices</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">DM</span><span class="w"> </span><span class="n">devices</span><span class="w"> </span><span class="n">detached</span><span class="p">.</span><span class="w"></span>
+<span class="n">Halting</span><span class="w"> </span><span class="k">system</span><span class="p">.</span><span class="w"></span>
+<span class="n">Exiting</span><span class="w"> </span><span class="n">container</span><span class="p">.</span><span class="w"></span>
+</code></pre></div>
+
+<h1>Wrap up</h1>
+<p>In this article we have seen that:</p>
+<ul>
+<li>systemd workloads use SIGRTMIN+3 for stopping the workload gracefully.</li>
+<li>Kubernetes does not passthrough the STOPSIGNAL instruction from Dockerfile
+  to the container definition.</li>
+<li>We can use a container lifecycle hook for the ones that could require it to
+  interact with the workload before stop the container, and for this specific
+  scenario, to send the SIGRTMIN+3 signal to PID 1 (systemd). This
+  requires the binary inside the container.</li>
+</ul>
+<h1>References</h1>
+<ul>
+<li><a href="https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3">Systemd SIGRTMIN+3</a>.</li>
+<li><a href="https://docs.docker.com/engine/reference/builder/#stopsignal">Dockerfile - STOPSIGNAL</a>.</li>
+<li><a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">Container Lifecycle Hooks</a>.</li>
+<li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/attach-handler-lifecycle-event/">Attach Handlers to Container Lifecycle Events</a>.</li>
+</ul>
+  </div>
+  <div class="tag-cloud">
+    <p>
+    </p>
+  </div>
+
+
+
+
+
+</article>
+
+    <footer>
+<p>&copy;  </p>
+<p>
+Built with <a href="http://getpelican.com" target="_blank">Pelican</a> using <a href="http://bit.ly/flex-pelican" target="_blank">Flex</a> theme
+</p>    </footer>
+  </main>
+
+
+
+
+<script type="application/ld+json">
+{
+  "@context" : "http://schema.org",
+  "@type" : "Blog",
+  "name": " Under the hood ",
+  "url" : "",
+  "image": "",
+  "description": ""
+}
+</script>
+
+
+</body>
+</html>

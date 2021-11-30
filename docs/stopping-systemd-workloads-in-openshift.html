@@ -268,6 +268,68 @@ container; this is because kubernetes does not passthrough the STOPSIGNAL
 instruction that is found into the Dockerfile. For fix this situation we will
 use the <a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">container lifecycle hooks</a>,
 and we will explicitely send the SIGRTMIN+3 to the PID 1 (systemd).</p>
+<h1>Trying more isolated</h1>
+<p>Let's try if this happens only for SIGRTMIN+3 or for any signal used for
+STOPSIGNAL instruction. To investigate that, we will use the following
+Dockerfile file:</p>
+<div class="highlight"><pre><span></span><code><span class="k">FROM</span> <span class="s">quay.io/fedora/fedora:35</span>
+<span class="k">COPY</span> demo-signal.sh /demo-signal.sh
+<span class="k">STOPSIGNAL</span><span class="s"> SIGINT</span>
+<span class="k">ENTRYPOINT</span> <span class="p">[</span><span class="s2">&quot;/demo-signal.sh&quot;</span><span class="p">]</span>
+</code></pre></div>
+
+<p>The <code>demo-signal.sh</code> should has execution permissions and the content is the
+below:</p>
+<div class="highlight"><pre><span></span><code><span class="ch">#!/bin/bash</span>
+
+<span class="k">function</span> trap_sigint <span class="o">{</span> <span class="nb">echo</span> <span class="s2">&quot;Exiting by SIGINT&quot;</span><span class="p">;</span>  <span class="nb">exit</span> <span class="m">0</span><span class="p">;</span> <span class="o">}</span>
+<span class="k">function</span> trap_sigterm <span class="o">{</span> <span class="nb">echo</span> <span class="s2">&quot;Exiting by SIGTERM&quot;</span><span class="p">;</span> <span class="nb">exit</span> <span class="m">0</span><span class="p">;</span> <span class="o">}</span>
+<span class="k">function</span> trap_sigusr1 <span class="o">{</span> <span class="nb">echo</span> <span class="s2">&quot;Exiting by SIGUSR1&quot;</span><span class="p">;</span> <span class="nb">exit</span> <span class="m">0</span><span class="p">;</span> <span class="o">}</span>
+<span class="k">function</span> trap_sigrtmin3 <span class="o">{</span> <span class="nb">echo</span> <span class="s2">&quot;Exiting by SIGRTMIN+3&quot;</span><span class="p">;</span> <span class="nb">exit</span> <span class="m">0</span><span class="p">;</span> <span class="o">}</span>
+
+<span class="nb">trap</span> trap_sigint SIGINT
+<span class="nb">trap</span> trap_sigterm SIGTERM
+<span class="nb">trap</span> trap_sigusr1 SIGUSR1
+<span class="nb">trap</span> trap_sigrtmin3 <span class="s2">&quot;SIGRTMIN+3&quot;</span>
+
+<span class="k">while</span> true<span class="p">;</span> <span class="k">do</span> sleep <span class="m">1</span><span class="p">;</span> <span class="k">done</span>
+</code></pre></div>
+
+<p>Finally we define a workload with the pod.yaml file below:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">apiVersion</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">v1</span>
+<span class="nt">kind</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">Pod</span>
+<span class="nt">metadata</span><span class="p">:</span>
+  <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">demo-signals</span>
+  <span class="nt">labels</span><span class="p">:</span>
+    <span class="nt">app</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">signals</span>
+<span class="nt">spec</span><span class="p">:</span>
+  <span class="nt">containers</span><span class="p">:</span>
+  <span class="p p-Indicator">-</span> <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">main</span>
+    <span class="nt">image</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">quay.io/avisied0/demos:signals</span>
+    <span class="nt">command</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="s">&quot;/demo-signal.sh&quot;</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+
+<p>And we try the scenario by:</p>
+<div class="highlight"><pre><span></span><code>podman build -t quay.io/avisied0/demos:signals -f Dockerfile .
+podman push quay.io/avisied0/demos:signals
+oc create -f pod.yaml
+oc logs pod/demo-signals -f <span class="p">&amp;</span>
+oc delete -f pod.yaml
+</code></pre></div>
+
+<p>Getting the output below:</p>
+<div class="highlight"><pre><span></span><code><span class="n">pod</span> <span class="s2">&quot;demo-signals&quot;</span> <span class="n">deleted</span>
+<span class="n">Exiting</span> <span class="n">by</span> <span class="n">SIGTERM</span>
+</code></pre></div>
+
+<p>So when the pod is deleted, SIGTERM signal is send to the containers that
+belong to the Pod whatever is the STOPSIGNAL instruction that is defined into
+the container image.</p>
+<blockquote>
+<p>It was tested using numeric numbers for STOPSIGNAL instruction instead of
+the name of the signal, and the result did not change.</p>
+</blockquote>
+<h1>Solution by using container lifecycle hooks</h1>
 <ul>
 <li>Update the <code>pod.yaml</code> file with the content below:</li>
 </ul>
@@ -292,17 +354,17 @@ spec:
           command: <span class="o">[</span><span class="s2">&quot;kill&quot;</span>, <span class="s2">&quot;-RTMIN+3&quot;</span>, <span class="s2">&quot;1&quot;</span><span class="o">]</span>   <span class="c1"># (4)</span>
 </code></pre></div>
 
-<ol>
-<li>The lifecycle hooks for that container.</li>
-<li>Indicate that will be called before stopping the container.</li>
-<li>It will be an exec command.</li>
+<ul>
+<li>(1) The lifecycle hooks for that container.</li>
+<li>(2) Indicate that will be called before stopping the container.</li>
+<li>(3) It will be an exec command.</li>
 <li>
-<p>The command to be executed; the command should exist inside the container.</p>
+<p>(4) The command to be executed; the command should exist inside the container.</p>
 </li>
 <li>
 <p>Create the pod again:</p>
 </li>
-</ol>
+</ul>
 <div class="highlight"><pre><span></span><code>oc create -f pod.yaml --as<span class="o">=</span>runasanyuid
 </code></pre></div>
 
@@ -407,10 +469,11 @@ spec:
 <li>We can use a container lifecycle hook for the ones that could require it to
   interact with the workload before stop the container, and for this specific
   scenario, to send the SIGRTMIN+3 signal to PID 1 (systemd). This
-  requires the binary inside the container.</li>
+  requires the <code>kill</code> binary inside the container for sending the signal.</li>
 </ul>
 <h1>References</h1>
 <ul>
+<li><a href="https://developers.redhat.com/blog/2019/04/24/how-to-run-systemd-in-a-container?source=sso#other_cool_features_about_podman_and_systemd">How to run systemd in a container</a>.</li>
 <li><a href="https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3">Systemd SIGRTMIN+3</a>.</li>
 <li><a href="https://docs.docker.com/engine/reference/builder/#stopsignal">Dockerfile - STOPSIGNAL</a>.</li>
 <li><a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">Container Lifecycle Hooks</a>.</li>

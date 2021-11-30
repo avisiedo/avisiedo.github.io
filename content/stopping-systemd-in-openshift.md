@@ -181,6 +181,80 @@ instruction that is found into the Dockerfile. For fix this situation we will
 use the [container lifecycle hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/),
 and we will explicitely send the SIGRTMIN+3 to the PID 1 (systemd).
 
+# Trying more isolated
+
+Let's try if this happens only for SIGRTMIN+3 or for any signal used for
+STOPSIGNAL instruction. To investigate that, we will use the following
+Dockerfile file:
+
+```Dockerfile
+FROM quay.io/fedora/fedora:35
+COPY demo-signal.sh /demo-signal.sh
+STOPSIGNAL SIGINT
+ENTRYPOINT ["/demo-signal.sh"]
+```
+
+The `demo-signal.sh` should has execution permissions and the content is the
+below:
+
+```shell
+#!/bin/bash
+
+function trap_sigint { echo "Exiting by SIGINT";  exit 0; }
+function trap_sigterm { echo "Exiting by SIGTERM"; exit 0; }
+function trap_sigusr1 { echo "Exiting by SIGUSR1"; exit 0; }
+function trap_sigrtmin3 { echo "Exiting by SIGRTMIN+3"; exit 0; }
+
+trap trap_sigint SIGINT
+trap trap_sigterm SIGTERM
+trap trap_sigusr1 SIGUSR1
+trap trap_sigrtmin3 "SIGRTMIN+3"
+
+while true; do sleep 1; done
+```
+
+Finally we define a workload with the pod.yaml file below:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo-signals
+  labels:
+    app: signals
+spec:
+  containers:
+  - name: main
+    image: quay.io/avisied0/demos:signals
+    command: ["/demo-signal.sh"]
+```
+
+And we try the scenario by:
+
+```shell
+podman build -t quay.io/avisied0/demos:signals -f Dockerfile .
+podman push quay.io/avisied0/demos:signals
+oc create -f pod.yaml
+oc logs pod/demo-signals -f &
+oc delete -f pod.yaml
+```
+
+Getting the output below:
+
+```raw
+pod "demo-signals" deleted
+Exiting by SIGTERM
+```
+
+So when the pod is deleted, SIGTERM signal is send to the containers that
+belong to the Pod whatever is the STOPSIGNAL instruction that is defined into
+the container image.
+
+> It was tested using numeric numbers for STOPSIGNAL instruction instead of
+> the name of the signal, and the result did not change.
+
+# Solution by using container lifecycle hooks
+
 - Update the `pod.yaml` file with the content below:
 
 ```shell
@@ -205,10 +279,10 @@ spec:
           command: ["kill", "-RTMIN+3", "1"]   # (4)
 ```
 
-  1. The lifecycle hooks for that container.
-  2. Indicate that will be called before stopping the container.
-  3. It will be an exec command.
-  4. The command to be executed; the command should exist inside the container.
+- (1) The lifecycle hooks for that container.
+- (2) Indicate that will be called before stopping the container.
+- (3) It will be an exec command.
+- (4) The command to be executed; the command should exist inside the container.
 
 - Create the pod again:
 
@@ -320,10 +394,11 @@ In this article we have seen that:
 - We can use a container lifecycle hook for the ones that could require it to
   interact with the workload before stop the container, and for this specific
   scenario, to send the SIGRTMIN+3 signal to PID 1 (systemd). This
-  requires the binary inside the container.
+  requires the `kill` binary inside the container for sending the signal.
 
 # References
 
+- [How to run systemd in a container](https://developers.redhat.com/blog/2019/04/24/how-to-run-systemd-in-a-container?source=sso#other_cool_features_about_podman_and_systemd).
 - [Systemd SIGRTMIN+3](https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3).
 - [Dockerfile - STOPSIGNAL](https://docs.docker.com/engine/reference/builder/#stopsignal).
 - [Container Lifecycle Hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/).

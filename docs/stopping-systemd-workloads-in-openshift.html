@@ -125,9 +125,10 @@ how to overcome the limitation in Openshift by using container lifecycle hooks.<
 </blockquote>
 <p><strong>UPDATES</strong>:</p>
 <ul>
-<li>This is happening in Openshift but it will be fiex inin 4.10 (verified on
+<li>This is happening in Openshift but it will be fixed in 4.10 (verified on
   Openshift 4.10.0-ci-20220107).</li>
-<li>Here is the change at cri-o that fix this situation: </li>
+<li>Here is the change at cri-o that fix this situation: 
+  https://github.com/cri-o/cri-o/pull/5366</li>
 </ul>
 <h1>Defining the workload</h1>
 <p>We are going to use the following simple <code>Dockerfile.stopsignal-systemd</code> Dockerfile to build our workload.</p>
@@ -286,7 +287,7 @@ will use the following <code>Dockerfile.stopsignal-demo</code> Dockerfile:</p>
 <span class="k">CMD</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;/demo-signal.sh&quot;</span><span class="p">]</span>
 </code></pre></div>
 
-<p>The <code>demo-signal.sh</code> should have executing permission. The content is:</p>
+<p>The <code>demo-signal.sh</code> should have execute permission. The content is:</p>
 <div class="highlight"><pre><span></span><code><span class="ch">#!/bin/bash</span>
 
 <span class="k">function</span> trap_signal <span class="o">{</span>

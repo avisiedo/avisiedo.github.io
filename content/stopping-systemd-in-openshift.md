@@ -25,9 +25,10 @@ how to overcome the limitation in Openshift by using container lifecycle hooks.
 
 **UPDATES**:
 
-- This is happening in Openshift but it will be fiex inin 4.10 (verified on
+- This is happening in Openshift but it will be fixed in 4.10 (verified on
   Openshift 4.10.0-ci-20220107).
 - Here is the change at cri-o that fix this situation: 
+  https://github.com/cri-o/cri-o/pull/5366
 
 # Defining the workload
 
@@ -202,7 +203,7 @@ STOPSIGNAL SIGINT
 CMD ["/demo-signal.sh"]
 ```
 
-The `demo-signal.sh` should have executing permission. The content is:
+The `demo-signal.sh` should have execute permission. The content is:
 
 ```sh
 #!/bin/bash

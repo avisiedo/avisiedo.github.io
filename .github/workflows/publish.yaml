@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
 
@@ -26,8 +26,13 @@ jobs:
       - name: Build _site directory
         run: cobalt build
 
-      - name: Publish _site directory
-        uses: peaceiris/actions-gh-pages@v3
+      - uses: actions/upload-artifact@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
+          name: gh-pages
+          path: _site
+
+      # - name: Publish _site directory
+      #   uses: peaceiris/actions-gh-pages@v3
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      #     publish_dir: ./_site

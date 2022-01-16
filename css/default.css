@@ -1,0 +1,75 @@
+html {
+  height: -webkit-fill-available;
+}
+
+body {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  font-family: 'Lato', sans-serif;
+}
+
+aside {
+  width: 25vw;
+  height: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  overflow-y: auto;
+  display: block;
+
+  background-color: #d8d8d8;
+  color: #000;
+  text-align: center;
+}
+
+main {
+  width: 75vw;
+  height: 100vh;
+  display: flexbox;
+  flex-wrap: nowrap;
+  height: -webkit-fill-available;
+  max-height: 100vh;
+  overflow-x: auto;
+  overflow-y: scroll;
+  position: absolute;
+  top: 0;
+  left: 25vw;
+}
+
+.profile-image {
+  border-radius: 50%;
+  max-width: 140px;
+}
+
+ul.list {
+  list-style-type: none;
+  margin: 0;
+}
+
+ul.social {
+  list-style-type: none;
+  margin: 0;
+}
+
+aside {
+  padding: 50px;
+}
+
+aside.nav.ul.li {
+  line-height: 1.6em;
+  font-size: 1.28em;
+  text-transform: lowercase;
+}
+
+main {
+  padding: 50px;
+}
+
+@media screen and (min-width: 768px) {
+  aside.nav.ul.li {
+    padding: 0!important;
+    display: block;
+    position: inherit;
+  }
+}
+

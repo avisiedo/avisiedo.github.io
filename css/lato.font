@@ -1,0 +1,7 @@
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 100;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/lato/v20/S6u8w4BMUTPHh30wWw.ttf) format('truetype');
+}

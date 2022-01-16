@@ -1,0 +1,465 @@
+
+<!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="" />
+  <meta name="author" content="tinyeng" />
+  <meta name="description" content="" />
+  <meta property="og:site_name" content="Under the hood"/>
+  <meta property="og:type" content="blog"/>
+  <meta property="og:title" content="Under the hood"/>
+  <meta property="og:description" content=""/>
+  <meta property="og:locale" content="en_US"/>
+  <meta property="og:url" content="https://avisiedo.github.io/docs"/>
+  
+  <title>Under the hood</title>
+      
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,400;0,700;1,400&family=Source+Sans+Pro:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  
+
+  <link rel="stylesheet" type="text/css" href="/css/default.css"/>
+  <script src="https://kit.fontawesome.com/80969392e8.js" crossorigin="anonymous"></script>
+</head>
+  
+  <body class="light-theme">
+  <aside>
+    <div>
+      <a href="/">
+        <img class="profile-image" loading="lazy" src="/images/profile-image.png" alt="" title=""/>
+      </a>
+
+      <nav>
+        <ul class="list">
+            <li>
+              <a target="_self" href="/" >Under The Hood</a>
+            </li>
+            <li>
+              <a target="_self" href="https://cobalt-org.github.io" >cobalt</a>
+            </li>
+        </ul>
+      </nav>
+
+      <ul class="social">
+          <li>
+            <a  class="sc-todo" href="#" target="_blank">
+              <i class="fab fa-todo"></i>
+            </a>
+          </li>
+          <li>
+            <a  class="sc-todo" href="#" target="_blank">
+              <i class="fab fa-todo"></i>
+            </a>
+          </li>
+      </ul>
+    </div>
+
+  </aside>
+
+    <main>
+  
+  
+  
+  
+  <article>
+    <h1>Stopping systemd workloads in Openshift</h1>
+    <p>Are you using systemd workloads? then this article could be of your interest.
+Along this article we are going to see how the workloads based on systemd
+could be stopped gracefully on Openshift.</p>
+<p>To show what we want to transmit into this article, we are going to do
+a hands-on activities by using a simple systemd workload which run an nginx
+service; we will see the differences between using the workload in a container
+and using the workload in Openshift. Finally we will see how to overcome the
+situation in Openshift by using container lifecycle hooks.</p>
+<p>We are going to use <code>podman</code> and <code>openshift</code> for this article.</p>
+<p><strong>Prerequisites</strong></p>
+<ul>
+<li><a href="https://podman.io/">Podman</a> is installed into your environment.</li>
+<li><a href="https://docs.openshift.com/container-platform/4.9/cli_reference/openshift_cli/getting-started-cli.html#installing-openshift-cli">Openshift client</a> is installed into your environment.</li>
+<li>You have access to an Openshift cluster.</li>
+</ul>
+<blockquote>
+<p>You can install a SNO by using:</p>
+<ul>
+<li><a href="https://github.com/karmab/kcli">kcli</a>.</li>
+<li><a href="https://github.com/code-ready/crc">Code Ready Containers</a>.</li>
+</ul>
+</blockquote>
+<h2>Defining the workload</h2>
+<p>We are going to use the following simple Dockerfile to build our workload.</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">FROM quay.io/fedora/fedora:35
+</span><span style="color:#657b83;">RUN dnf -y install procps nginx \
+</span><span style="color:#657b83;">    &amp;&amp; dnf clean all \
+</span><span style="color:#657b83;">    &amp;&amp; systemctl enable nginx
+</span><span style="color:#657b83;">EXPOSE 80
+</span><span style="color:#657b83;"># https://docs.docker.com/engine/reference/builder/#stopsignal
+</span><span style="color:#657b83;"># https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3
+</span><span style="color:#657b83;">STOPSIGNAL SIGRTMIN+3
+</span><span style="color:#657b83;">ENTRYPOINT [&quot;/sbin/init&quot;]
+</span></pre>
+<blockquote>
+<p>STOPSIGNAL instruction is not needed by podman as it detects that
+the signal to be sent should be SIGRTMIN+3 when <code>podman stop</code> is
+executed.</p>
+</blockquote>
+<p>Now we build the container workload by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">export IMG=&quot;quay.io/avisied0/demos:stopping-systemd&quot;
+</span><span style="color:#657b83;">podman build -t &quot;${IMG}&quot; -f Dockerfile .
+</span></pre>
+<h2>Runnning container with podman</h2>
+<p>Firstly, let's see what happens with the workload when running with podman or
+docker:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">CONTAINER_ID=$( podman run -it -d &quot;${IMG}&quot; )
+</span><span style="color:#657b83;">podman logs --follow &quot;${CONTAINER_ID}&quot; &amp;
+</span><span style="color:#657b83;">podman stop &quot;${CONTAINER_ID}&quot;
+</span></pre>
+<p>And we get a result like the below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">[  OK  ] Removed slice Slice /system/getty.
+</span><span style="color:#657b83;">[  OK  ] Removed slice Slice /system/modprobe.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Graphical Interface.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Multi-User System.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Login Prompts.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Timer Units.
+</span><span style="color:#657b83;">[  OK  ] Stopped dnf makecache --timer.
+</span><span style="color:#657b83;">[  OK  ] Stopped Daily rotation of log files.
+</span><span style="color:#657b83;">[  OK  ] Stopped Daily Cleanup of Temporary Directories.
+</span><span style="color:#657b83;">.
+</span><span style="color:#657b83;">.
+</span><span style="color:#657b83;">.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Swaps.
+</span><span style="color:#657b83;">[  OK  ] Reached target System Shutdown.
+</span><span style="color:#657b83;">[  OK  ] Reached target Unmount All Filesystems.
+</span><span style="color:#657b83;">[  OK  ] Reached target Late Shutdown Services.
+</span><span style="color:#657b83;">         Starting System Halt...
+</span><span style="color:#657b83;">Sending SIGTERM to remaining processes...
+</span><span style="color:#657b83;">Sending SIGKILL to remaining processes...
+</span><span style="color:#657b83;">All filesystems, swaps, loop devices, MD devices and DM devices detached.
+</span><span style="color:#657b83;">Halting system.
+</span><span style="color:#657b83;">Exiting container.
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">[1]+  Done                    podman logs --follow &quot;${CONTAINER_ID}&quot;
+</span></pre>
+<h2>What about Openshift?</h2>
+<p>Let's try now our workload into Openshift; you will need an Openshift cluster
+or a Single Node Openshift (you can get one by using
+<a href="https://github.com/karmab/kcli">kcli</a> or
+<a href="https://github.com/code-ready/crc">Code Ready Containers</a>).</p>
+<ul>
+<li>
+<p>Push the image to your image registry:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">podman push &quot;${IMG}&quot;
+</span></pre></li>
+</ul>
+<blockquote>
+<p>Check that the repository is public for pulling the image.</p>
+</blockquote>
+<ul>
+<li>
+<p>Access your cluster as a cluster admin and create a new project:.</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">oc login -u kubeadmin https://api.crc.testing:6443
+</span><span style="color:#657b83;">oc new-project stopping-systemd
+</span></pre></li>
+<li>
+<p>Create a serviceaccount with the necessary permissions for creating and
+running the workload; this is, edit role and anyuid
+SecurityContextConstraint:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">oc create serviceaccount runasanyuid
+</span><span style="color:#657b83;">oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
+</span><span style="color:#657b83;">oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
+</span></pre></li>
+<li>
+<p>Create the pod.yaml file as the below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#268bd2;">apiVersion</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">v1
+</span><span style="color:#268bd2;">kind</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Pod
+</span><span style="color:#268bd2;">metadata</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">systemd-nginx
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">labels</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
+</span><span style="color:#268bd2;">spec</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">serviceAccountName</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">runasanyuid
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">containers</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  - </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:stopping-systemd
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">imagePullPolicy</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Always
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">/sbin/init</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">tty</span><span style="color:#657b83;">: </span><span style="color:#b58900;">true
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">privileged</span><span style="color:#657b83;">: </span><span style="color:#b58900;">false
+</span></pre></li>
+<li>
+<p>Create the workload into our cluster by using the above serviceaccount:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">oc create -f pod.yaml --as=runasanyuid
+</span><span style="color:#657b83;">oc get all
+</span></pre></li>
+<li>
+<p>Print out and follow the logs in the background.</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">oc logs pod/systemd-nginx -f &amp;
+</span></pre></li>
+<li>
+<p>Try to stop the workload.</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">oc delete -f pod.yaml
+</span></pre></li>
+</ul>
+<p>We get something like the below into the logs, but systemd and the pod is
+not stopped after a while:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">pod &quot;systemd-nginx&quot; deleted
+</span><span style="color:#657b83;">systemd-nginx login: systemd v249.7-2.fc35 running in system mode (+PAM +AUDIT +SELINUX -APPARMOR +IMA +SMACK +SECCOMP +GCRYPT +GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified)
+</span><span style="color:#657b83;">Detected virtualization podman.
+</span><span style="color:#657b83;">Detected architecture x86-64.
+</span></pre>
+<p>We can see that systemd does not begin the stop sequence as in the case of the
+container; this is because Openshift does not passthrough the STOPSIGNAL
+instruction that is found into the Dockerfile. For fix this situation we will
+use the <a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">container lifecycle hooks</a>,
+and we will explicitely send the SIGRTMIN+3 to the PID 1 (systemd).</p>
+<h2>Trying more isolated</h2>
+<p>Let's try if this happens only for SIGRTMIN+3 or for any signal used for
+STOPSIGNAL instruction. To investigate that, we will use the following
+Dockerfile file:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">FROM quay.io/fedora/fedora:35
+</span><span style="color:#657b83;">COPY demo-signal.sh /demo-signal.sh
+</span><span style="color:#657b83;">STOPSIGNAL SIGINT
+</span><span style="color:#657b83;">ENTRYPOINT [&quot;/demo-signal.sh&quot;]
+</span></pre>
+<p>The <code>demo-signal.sh</code> should has execution permissions and the content is the
+below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">#!/bin/bash
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">function trap_sigint { echo &quot;Exiting by SIGINT&quot;;  exit 0; }
+</span><span style="color:#657b83;">function trap_sigterm { echo &quot;Exiting by SIGTERM&quot;; exit 0; }
+</span><span style="color:#657b83;">function trap_sigusr1 { echo &quot;Exiting by SIGUSR1&quot;; exit 0; }
+</span><span style="color:#657b83;">function trap_sigrtmin3 { echo &quot;Exiting by SIGRTMIN+3&quot;; exit 0; }
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">trap trap_sigint SIGINT
+</span><span style="color:#657b83;">trap trap_sigterm SIGTERM
+</span><span style="color:#657b83;">trap trap_sigusr1 SIGUSR1
+</span><span style="color:#657b83;">trap trap_sigrtmin3 &quot;SIGRTMIN+3&quot;
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">while true; do sleep 1; done
+</span></pre>
+<p>Finally we define a workload with the pod.yaml file below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#268bd2;">apiVersion</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">v1
+</span><span style="color:#268bd2;">kind</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Pod
+</span><span style="color:#268bd2;">metadata</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">demo-signals
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">labels</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">signals
+</span><span style="color:#268bd2;">spec</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">containers</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  - </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">main
+</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:signals
+</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">/demo-signal.sh</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]
+</span></pre>
+<ul>
+<li>
+<p>And we try the scenario by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">podman build -t quay.io/avisied0/demos:signals -f Dockerfile .
+</span><span style="color:#657b83;">podman push quay.io/avisied0/demos:signals
+</span><span style="color:#657b83;">oc create -f pod.yaml
+</span><span style="color:#657b83;">oc logs pod/demo-signals -f &amp;
+</span><span style="color:#657b83;">oc delete -f pod.yaml
+</span></pre></li>
+<li>
+<p>Getting the output below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">pod &quot;demo-signals&quot; deleted
+</span><span style="color:#657b83;">Exiting by SIGTERM
+</span></pre></li>
+</ul>
+<p>So when the pod is deleted, SIGTERM signal is send to the containers that
+belong to the Pod whatever is the STOPSIGNAL instruction that is defined into
+the container image.</p>
+<blockquote>
+<p>It was tested using numeric numbers for STOPSIGNAL instruction instead of
+the name of the signal, and the result did not change.</p>
+</blockquote>
+<h2>Solution by using container lifecycle hooks</h2>
+<ul>
+<li>
+<p>Update the <code>pod.yaml</code> file with the content below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#268bd2;">apiVersion</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">v1
+</span><span style="color:#268bd2;">kind</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Pod
+</span><span style="color:#268bd2;">metadata</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">systemd-nginx
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">labels</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
+</span><span style="color:#268bd2;">spec</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">serviceAccountName</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">runasanyuid
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">containers</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  - </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:stopping-systemd
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">imagePullPolicy</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Always
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">/sbin/init</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">tty</span><span style="color:#657b83;">: </span><span style="color:#b58900;">true
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">privileged</span><span style="color:#657b83;">: </span><span style="color:#b58900;">false
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">lifecycle</span><span style="color:#657b83;">:  </span><span style="color:#93a1a1;"># (1)
+</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">preStop</span><span style="color:#657b83;">:  </span><span style="color:#93a1a1;"># (2)
+</span><span style="color:#657b83;">        </span><span style="color:#268bd2;">exec</span><span style="color:#657b83;">:   </span><span style="color:#93a1a1;"># (3)
+</span><span style="color:#657b83;">        </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">kill</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">-RTMIN+3</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">1</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]   </span><span style="color:#93a1a1;"># (4)
+</span></pre>
+<ul>
+<li>(1) The lifecycle hooks for that container.</li>
+<li>(2) Indicate that will be called before stopping the container.</li>
+<li>(3) It will be an exec command.</li>
+<li>(4) The command to be executed; the command should exist inside the container.</li>
+</ul>
+</li>
+<li>
+<p>Create the pod again:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">$ oc create -f pod.yaml --as=runasanyuid
+</span></pre></li>
+<li>
+<p>Print out and follow the logs in the background:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">$ oc logs pod/systemd-nginx -f &amp;
+</span></pre></li>
+<li>
+<p>Now we delete the pod:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">$ oc delete -f pod.yaml
+</span></pre></li>
+</ul>
+<p>And finally what we get immeditalty is the below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">pod &quot;systemd-nginx&quot; deleted
+</span><span style="color:#657b83;">systemd-nginx login: [  OK  ] Removed slice Slice /system/getty.
+</span><span style="color:#657b83;">[  OK  ] Removed slice Slice /system/modprobe.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Graphical Interface.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Multi-User System.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Login Prompts.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Timer Units.
+</span><span style="color:#657b83;">[  OK  ] Stopped dnf makecache --timer.
+</span><span style="color:#657b83;">[  OK  ] Stopped Daily rotation of log files.
+</span><span style="color:#657b83;">[  OK  ] Stopped Daily Cleanup of Temporary Directories.
+</span><span style="color:#657b83;">[  OK  ] Closed Process Core Dump Socket.
+</span><span style="color:#657b83;">         Stopping Console Getty...
+</span><span style="color:#657b83;">         Stopping The nginx HTTP and reverse proxy server...
+</span><span style="color:#657b83;">         Stopping User Login Management...
+</span><span style="color:#657b83;">[  OK  ] Stopped Console Getty.
+</span><span style="color:#657b83;">         Stopping Permit User Sessions...
+</span><span style="color:#657b83;">[  OK  ] Stopped User Login Management.
+</span><span style="color:#657b83;">[  OK  ] Stopped Permit User Sessions.
+</span><span style="color:#657b83;">systemd v249.7-2.fc35 running in system mode (+PAM +AUDIT +SELINUX -APPARMOR +IMA +SMACK +SECCOMP +GCRYPT +GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified)
+</span><span style="color:#657b83;">Detected virtualization podman.
+</span><span style="color:#657b83;">Detected architecture x86-64.
+</span><span style="color:#657b83;">[  OK  ] Stopped The nginx HTTP and reverse proxy server.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Network is Online.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Host and Network Name Lookups.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Remote File Systems.
+</span><span style="color:#657b83;">         Stopping Home Area Activation...
+</span><span style="color:#657b83;">         Stopping Network Name Resolution...
+</span><span style="color:#657b83;">[  OK  ] Stopped Network Name Resolution.
+</span><span style="color:#657b83;">[  OK  ] Stopped Home Area Activation.
+</span><span style="color:#657b83;">         Stopping Home Area Manager...
+</span><span style="color:#657b83;">[  OK  ] Stopped Home Area Manager.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Basic System.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Path Units.
+</span><span style="color:#657b83;">[  OK  ] Stopped Dispatch Password …ts to Console Directory Watch.
+</span><span style="color:#657b83;">[  OK  ] Stopped Forward Password R…uests to Wall Directory Watch.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Slice Units.
+</span><span style="color:#657b83;">[  OK  ] Removed slice User and Session Slice.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Socket Units.
+</span><span style="color:#657b83;">         Stopping D-Bus System Message Bus...
+</span><span style="color:#657b83;">[  OK  ] Stopped D-Bus System Message Bus.
+</span><span style="color:#657b83;">[  OK  ] Closed D-Bus System Message Bus Socket.
+</span><span style="color:#657b83;">[  OK  ] Stopped target System Initialization.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Local Verity Protected Volumes.
+</span><span style="color:#657b83;">[  OK  ] Stopped Update is Completed.
+</span><span style="color:#657b83;">[  OK  ] Stopped Rebuild Dynamic Linker Cache.
+</span><span style="color:#657b83;">[  OK  ] Stopped Rebuild Journal Catalog.
+</span><span style="color:#657b83;">         Stopping Record System Boot/Shutdown in UTMP...
+</span><span style="color:#657b83;">[  OK  ] Stopped Record System Boot/Shutdown in UTMP.
+</span><span style="color:#657b83;">[  OK  ] Stopped Create Volatile Files and Directories.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Local File Systems.
+</span><span style="color:#657b83;">         Unmounting /etc/hostname...
+</span><span style="color:#657b83;">         Unmounting /etc/hosts...
+</span><span style="color:#657b83;">         Unmounting /etc/resolv.conf...
+</span><span style="color:#657b83;">         Unmounting /run/lock...
+</span><span style="color:#657b83;">         Unmounting /run/secrets/kubernetes.io/serviceaccount...
+</span><span style="color:#657b83;">         Unmounting Temporary Directory /tmp...
+</span><span style="color:#657b83;">         Unmounting /var/log/journal...
+</span><span style="color:#657b83;">[  OK  ] Stopped Create System Users.
+</span><span style="color:#657b83;">[FAILED] Failed unmounting /etc/hosts.
+</span><span style="color:#657b83;">[FAILED] Failed unmounting /run/lock.
+</span><span style="color:#657b83;">[FAILED] Failed unmounting /run/sec…/kubernetes.io/serviceaccount.
+</span><span style="color:#657b83;">         Unmounting /run/secrets...
+</span><span style="color:#657b83;">[FAILED] Failed unmounting /etc/resolv.conf.
+</span><span style="color:#657b83;">[FAILED] Failed unmounting Temporary Directory /tmp.
+</span><span style="color:#657b83;">[FAILED] Failed unmounting /var/log/journal.
+</span><span style="color:#657b83;">[FAILED] Failed unmounting /etc/hostname.
+</span><span style="color:#657b83;">[FAILED] Failed unmounting /run/secrets.
+</span><span style="color:#657b83;">[  OK  ] Stopped target Swaps.
+</span><span style="color:#657b83;">[  OK  ] Reached target System Shutdown.
+</span><span style="color:#657b83;">[  OK  ] Reached target Unmount All Filesystems.
+</span><span style="color:#657b83;">[  OK  ] Reached target Late Shutdown Services.
+</span><span style="color:#657b83;">         Starting System Halt...
+</span><span style="color:#657b83;">Sending SIGTERM to remaining processes...
+</span><span style="color:#657b83;">Sending SIGKILL to remaining processes...
+</span><span style="color:#657b83;">All filesystems, swaps, loop devices, MD devices and DM devices detached.
+</span><span style="color:#657b83;">Halting system.
+</span><span style="color:#657b83;">Exiting container.
+</span></pre>
+<h2>Wrap up</h2>
+<p>In this article we have seen that:</p>
+<ul>
+<li>systemd workloads use SIGRTMIN+3 for stopping the workload gracefully.</li>
+<li>Openshift does not passthrough the STOPSIGNAL instruction from Dockerfile
+to the container definition.</li>
+<li>We can use a container lifecycle hook for the ones that could require it to
+interact with the workload before stop the container, and for this specific
+scenario, to send the SIGRTMIN+3 signal to PID 1 (systemd). This
+requires the <code>kill</code> binary inside the container for sending the signal.</li>
+</ul>
+<p><strong>UPDATES</strong></p>
+<ul>
+<li>The reason the STOPSINAL instruction is not interpreted in Openshift is
+because it is not parsed the signal name.</li>
+<li></li>
+</ul>
+<h2>References</h2>
+<ul>
+<li><a href="https://developers.redhat.com/blog/2019/04/24/how-to-run-systemd-in-a-container?source=sso#other_cool_features_about_podman_and_systemd">How to run systemd in a container</a>.</li>
+<li><a href="https://www.freedesktop.org/software/systemd/man/systemd.html#SIGRTMIN+3">Systemd SIGRTMIN+3</a>.</li>
+<li><a href="https://docs.docker.com/engine/reference/builder/#stopsignal">Dockerfile - STOPSIGNAL</a>.</li>
+<li><a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">Container Lifecycle Hooks</a>.</li>
+<li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/attach-handler-lifecycle-event/">Attach Handlers to Container Lifecycle Events</a>.</li>
+</ul>
+
+  </article>
+  
+    <div class="pagination">
+    </div>
+  
+  
+  <footer>
+    <p></p>
+</footer>
+
+    </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+  </body>
+  </html>
+  
+  

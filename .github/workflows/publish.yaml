@@ -1,4 +1,5 @@
 # Based on: https://github.com/vashirov/vashirov.github.io/blob/main/.github/workflows/gh-pages.yml
+name: Publish site
 on:
   push:
     branches:
@@ -26,13 +27,9 @@ jobs:
       - name: Build _site directory
         run: cobalt build
 
-      - uses: actions/upload-artifact@v2
+      - name: Publish _site directory
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          name: gh-pages
-          path: _site
-
-      # - name: Publish _site directory
-      #   uses: peaceiris/actions-gh-pages@v3
-      #   with:
-      #     github_token: ${{ secrets.GITHUB_TOKEN }}
-      #     publish_dir: ./_site
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: main

@@ -1,0 +1,50 @@
+# https://cobalt-org.github.io/docs/config/
+
+# Build options
+source: "."
+template_extensions:
+  - md
+  - liquid
+include_drafts: false
+ignore:
+  - Makefile
+  - Dockerfile
+  - mk/**
+  # https://www.iana.org/assignments/well-known-uris/well-known-uris.xhtml
+  - "!.well-known"
+  - "!.well-known/**/*"
+  # Ignore hidden files
+  - ".*"
+  - .github/**/*
+  - README.md
+destination: "_site"
+
+# Site options
+site:
+  title: Alex's blog
+  description: Investigations and other interesting things
+  base_url: https://avisiedo.github.io
+
+# Page / Post options
+default:
+  excerpt_separator: "\n\n"
+  is_draft: false
+syntax_highlight:
+  # $ cobalt debug highlight themes
+  theme: "Solarized (light)"
+  enabled: true
+assets:
+  sass:
+    style: Nested
+pages:
+  default: {}
+posts:
+  title: ~
+  description: ~
+  dir: posts
+  drafts_dir: drafts
+  order: Desc
+  rss: ~
+  jsonfeed: ~
+  publish_date_in_filename: true
+  default: {}

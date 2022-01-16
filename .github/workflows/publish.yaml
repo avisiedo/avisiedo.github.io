@@ -1,0 +1,33 @@
+# Based on: https://github.com/vashirov/vashirov.github.io/blob/main/.github/workflows/gh-pages.yml
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      # https://actions-rs.github.io/
+      - name: Install cargo-audit binary crate
+        uses: actions-rs/install@v0.1
+        with:
+          crate: cargo-audit
+          version: latest
+          use-tool-cache: true
+
+      - name: Install cobalt
+        run: |
+          curl -LSfs https://raw.githubusercontent.com/crate-ci/gh-install/master/v1/install.sh \
+          | sh -s -- --git cobalt-org/cobalt.rs --crate cobalt
+
+      - name: Build _site directory
+        run: cobalt build
+
+      - name: Publish _site directory
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site

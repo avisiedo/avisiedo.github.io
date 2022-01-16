@@ -17,6 +17,7 @@ ignore:
   - ".*"
   - .github/**/*
   - README.md
+  - docs
 destination: "_site"
 
 # Site options

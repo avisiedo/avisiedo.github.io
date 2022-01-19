@@ -9,15 +9,13 @@ include_drafts: false
 ignore:
   - Makefile
   - Dockerfile
-  - mk/**
+  - mk
   # https://www.iana.org/assignments/well-known-uris/well-known-uris.xhtml
   - "!.well-known"
   - "!.well-known/**/*"
   # Ignore hidden files
   - ".*"
-  - .github/**/*
   - README.md
-  - docs
 destination: "_site"
 
 # Site options

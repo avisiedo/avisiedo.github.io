@@ -6,32 +6,35 @@ is_draft: false
 categories: ["kubernetes"]
 tags: ["kubernetes", "openshift", "cri-o", "sigstop"]
 ---
-Are you using systemd workloads? then this article could be of your interest.
-Along this article we are going to see how the workloads based on systemd
-could be stopped gracefully on Openshift.
+Are you using systemd workloads? Then this article could be of interest.
+In this article we are going to see how workloads based on systemd
+can be stopped gracefully on Openshift.
 
-To show what we want to transmit into this article, we are going to do
-a hands-on activities by using a simple systemd workload which run an nginx
-service; we will see the differences between using the workload in a container
-and using the workload in Openshift. Finally we will see how to overcome the
-situation in Openshift by using container lifecycle hooks.
-
-We are going to use `podman` and `openshift` for this article.
+We are going to do hands-on activities, using a simple systemd workload
+which runs an nginx service. We will see the differences between using the
+workload in Podman and using the workload in Openshift. Finally we will see
+how to overcome the limitation in Openshift by using container lifecycle hooks.
 
 **Prerequisites**
 
-- [Podman](https://podman.io/) is installed into your environment.
-- [Openshift client](https://docs.openshift.com/container-platform/4.9/cli_reference/openshift_cli/getting-started-cli.html#installing-openshift-cli) is installed into your environment.
-- You have access to an Openshift cluster.
+- [Podman](https://podman.io/) is installed in your environment.
+- [OpenShift client](https://docs.openshift.com/container-platform/4.9/cli_reference/openshift_cli/getting-started-cli.html#installing-openshift-cli) is installed into your environment.
+- You have access to an OpenShift cluster.
 
-> You can install a SNO by using:
->
-> - [kcli](https://github.com/karmab/kcli).
-> - [Code Ready Containers](https://github.com/code-ready/crc).
+> You can install a single node OpenShift using
+> [kcli](https://github.com/karmab/kcli) or
+> [Code Ready Containers](https://github.com/code-ready/crc).
+
+**Updates**:
+
+- This is happening in Openshift but it will be fixed in 4.10 (verified on
+  Openshift 4.10.0-ci-20220107).
+- Here is the change at cri-o that fix this situation:
+  https://github.com/cri-o/cri-o/pull/5366
 
 ## Defining the workload
 
-We are going to use the following simple Dockerfile to build our workload.
+We are going to use the following simple `Dockerfile.stopsignal-systemd` Dockerfile to build our workload.
 
 ```Dockerfile
 FROM quay.io/fedora/fedora:35
@@ -45,15 +48,15 @@ STOPSIGNAL SIGRTMIN+3
 ENTRYPOINT ["/sbin/init"]
 ```
 
-> STOPSIGNAL instruction is not needed by podman as it detects that
-> the signal to be sent should be SIGRTMIN+3 when `podman stop` is
-> executed.
+> The `STOPSIGNAL` instruction is not needed by podman as it detects that
+> the signal to be sent by `podman stop` should be `SIGRTMIN+3`,
+> because the container process is systemd.
 
-Now we build the container workload by:
+Now we build:
 
-```shell
-export IMG="quay.io/avisied0/demos:stopping-systemd"
-podman build -t "${IMG}" -f Dockerfile .
+```sh
+export IMG="quay.io/avisied0/demos:stopsignal-systemd"
+podman build -t "${IMG}" -f Dockerfile.stopsignal-systemd .
 ```
 
 ## Runnning container with podman
@@ -61,7 +64,7 @@ podman build -t "${IMG}" -f Dockerfile .
 Firstly, let's see what happens with the workload when running with podman or
 docker:
 
-```shell
+```sh
 CONTAINER_ID=$( podman run -it -d "${IMG}" )
 podman logs --follow "${CONTAINER_ID}" &
 podman stop "${CONTAINER_ID}"
@@ -96,79 +99,83 @@ Exiting container.
 [1]+  Done                    podman logs --follow "${CONTAINER_ID}"
 ```
 
-## What about Openshift?
+## What about OpenShift?
 
-Let's try now our workload into Openshift; you will need an Openshift cluster
-or a Single Node Openshift (you can get one by using
+Let's try now our workload on OpenShift; you will need an OpenShift cluster
+or a single node OpenShift (you can get one by using
 [kcli](https://github.com/karmab/kcli) or
 [Code Ready Containers](https://github.com/code-ready/crc)).
 
 - Push the image to your image registry:
 
-    ```shell
-    podman push "${IMG}"
-    ```
+  ```sh
+  # Previously IMG was defined as below:
+  # export IMG="quay.io/avisied0/demos:stopsignal-systemd"
+  podman push "${IMG}"
+  ```
 
-> Check that the repository is public for pulling the image.
+> Ensure the repository is public so that the cluster can pull
+> the image.
 
-- Access your cluster as a cluster admin and create a new project:.
+- Access your cluster as a cluster admin and create a new project:
 
-  ```shell
+  ```sh
   oc login -u kubeadmin https://api.crc.testing:6443
-  oc new-project stopping-systemd
+  oc new-project stopsignal
   ```
 
 - Create a serviceaccount with the necessary permissions for creating and
   running the workload; this is, edit role and anyuid
   SecurityContextConstraint:
 
-  ```raw
+  ```sh
   oc create serviceaccount runasanyuid
   oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
   oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
   ```
 
-- Create the pod.yaml file as the below:
+- Create the Pod from the following `pod-stopsignal-systemd.yaml` file:
 
   ```yaml
   apiVersion: v1
   kind: Pod
   metadata:
-    name: systemd-nginx
+    name: stopsignal-systemd
     labels:
-        app: nginx
+      app: nginx
   spec:
     serviceAccountName: runasanyuid
+    automountServiceAccountToken: false
     containers:
     - name: nginx
-      image: quay.io/avisied0/demos:stopping-systemd
+      image: quay.io/avisied0/demos:stopsignal-systemd
       imagePullPolicy: Always
       command: ["/sbin/init"]
       tty: true
       privileged: false
   ```
 
-- Create the workload into our cluster by using the above serviceaccount:
+- Create the workload using the new serviceaccount:
 
-  ```shell
-  oc create -f pod.yaml --as=runasanyuid
+  ```sh
+  oc create -f pod-stopsignal-systemd.yaml --as system:serviceaccount:stopsignal:runasanyuid
   oc get all
   ```
 
 - Print out and follow the logs in the background.
 
-  ```shell
-  oc logs pod/systemd-nginx -f &
+  ```sh
+  oc logs pod/stopsignal-systemd -f --as system:serviceaccount:stopsignal:runasanyuid &
   ```
 
 - Try to stop the workload.
 
-  ```shell
-  oc delete -f pod.yaml
+  ```sh
+  oc delete -f pod-stopsignal-systemd.yaml --as system:serviceaccount:stopsignal:runasanyuid
   ```
 
-We get something like the below into the logs, but systemd and the pod is
-not stopped after a while:
+We get something like the below in the log output, but systemd and
+the pod are still running:
 
 ```raw
 pod "systemd-nginx" deleted
@@ -177,97 +184,123 @@ Detected virtualization podman.
 Detected architecture x86-64.
 ```
 
-We can see that systemd does not begin the stop sequence as in the case of the
-container; this is because Openshift does not passthrough the STOPSIGNAL
-instruction that is found into the Dockerfile. For fix this situation we will
-use the [container lifecycle hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/),
-and we will explicitely send the SIGRTMIN+3 to the PID 1 (systemd).
+We can see that systemd does not begin the stop sequence as was the
+case with podman.  This is because Openshift did not translate the
+`STOPSIGNAL` instruction specified in the Dockerfile (this will be fixed
+at Openshift 4.10). To work around this situation we will
+use [container lifecycle hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/),
+to explicitly send `SIGRTMIN+3` to PID 1 (systemd).
 
 ## Trying more isolated
 
-Let's try if this happens only for SIGRTMIN+3 or for any signal used for
-STOPSIGNAL instruction. To investigate that, we will use the following
-Dockerfile file:
+Let's see if this happens only for `SIGRTMIN+3` or for any signal
+specified via the `STOPSIGNAL` instruction. To investigate that, we
+will use the following `Dockerfile.stopsignal-demo` Dockerfile:
 
 ```Dockerfile
 FROM quay.io/fedora/fedora:35
 COPY demo-signal.sh /demo-signal.sh
+RUN chmod a+x /demo-signal.sh
 STOPSIGNAL SIGINT
-ENTRYPOINT ["/demo-signal.sh"]
+CMD ["/demo-signal.sh"]
 ```
 
-The `demo-signal.sh` should has execution permissions and the content is the
-below:
+The `demo-signal.sh` should have execute permission. The content is:
 
-```shell
+```sh
 #!/bin/bash
 
-function trap_sigint { echo "Exiting by SIGINT";  exit 0; }
-function trap_sigterm { echo "Exiting by SIGTERM"; exit 0; }
-function trap_sigusr1 { echo "Exiting by SIGUSR1"; exit 0; }
-function trap_sigrtmin3 { echo "Exiting by SIGRTMIN+3"; exit 0; }
+function trap_signal {
+  local signal="$1"
+  echo -e "\nExiting by ${signal}" >&2
+  exit 0
+}
 
-trap trap_sigint SIGINT
-trap trap_sigterm SIGTERM
-trap trap_sigusr1 SIGUSR1
-trap trap_sigrtmin3 "SIGRTMIN+3"
+for signal in SIGINT SIGTERM SIGUSR1 "SIGRTMIN+3"
+do
+  trap "trap_signal '${signal}'" "${signal}"
+done
 
-while true; do sleep 1; done
+while true; do
+    echo -n "."
+    sleep 1
+done
 ```
 
-Finally we define a workload with the pod.yaml file below:
+> Update: Script updated based on PR at:
+  https://github.com/avisiedo/freeipa-kustomize/blob/idmocp-331-stopping-with-kind-and-podman/incubator/013-signalstop/demo-signal.sh
+
+Finally we define a workload with the following `pod-stopsignal-demo.yaml`:
 
 ```yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: demo-signals
+  name: stopsignal-demo
   labels:
-      app: signals
+    app: stopsignals
 spec:
+  automountServiceAccountToken: false
   containers:
   - name: main
-      image: quay.io/avisied0/demos:signals
-      command: ["/demo-signal.sh"]
+    image: quay.io/avisied0/demos:stopsignal-demo
+    imagePullPolicy: Always
+    command:
+    - /demo-signal.sh
+    tty: true
+    privileged: false
 ```
 
-- And we try the scenario by:
+Build the image and push:
 
-  ```shell
-  podman build -t quay.io/avisied0/demos:signals -f Dockerfile .
-  podman push quay.io/avisied0/demos:signals
-  oc create -f pod.yaml
-  oc logs pod/demo-signals -f &
-  oc delete -f pod.yaml
-  ```
+```sh
+export IMG="quay.io/avisied0/demos:stopsignal-demo"
+podman build -t "${IMG}" -f Dockerfile.stopsignal-demo .
+podman push "${IMG}"
+```
 
-- Getting the output below:
+And we try the scenario by:
 
-  ```raw
-  pod "demo-signals" deleted
-  Exiting by SIGTERM
-  ```
+```sh
+oc create -f pod-stopsignal-demo.yaml --as system:serviceaccount:stopsignal:runasanyuid
+oc logs pod/stopsignal-demo -f --as system:serviceaccount:stopsignal:runasanyuid &
+oc delete -f pod-stopsignal-demo.yaml --as system:serviceaccount:stopsignal:runasanyuid
+```
 
-So when the pod is deleted, SIGTERM signal is send to the containers that
-belong to the Pod whatever is the STOPSIGNAL instruction that is defined into
-the container image.
+Getting the output below:
 
-> It was tested using numeric numbers for STOPSIGNAL instruction instead of
-> the name of the signal, and the result did not change.
+```raw
+pod "stopsignal-demo" deleted
+............
+Exiting by SIGINT
+```
 
-## Solution by using container lifecycle hooks
+When the `SIGINT` is specified into the STOPSIGNAL instruction in the Dockerfile
+Openshift is sending SIGINT signal to the pod when we delete the resource.
 
-- Update the `pod.yaml` file with the content below:
+> When the `STOPSIGNAL 37` (`RTMIN+3`) is specified as a numeric value, Openshift
+> is sending SIGTERM instead of the expected `SIGRTMIN+3` indicated into the
+> Dockerfile file.
+
+**Update**:
+
+> Another test was made in Openshift 4.10 ci build on Wed Jan 5, 2022 and it worked
+> as expected, by sending the `SIGRTMIN+3` to the container workload. So this will
+> be fixed in future releases.
+
+## Solution: container lifecycle hooks
+
+- Create `pod-stopsignal-lifecycle.yaml` with the content below:
 
   ```yaml
   apiVersion: v1
   kind: Pod
   metadata:
-    name: systemd-nginx
+    name: stopsignal-lifecycle
     labels:
-        app: nginx
+      app: nginx
   spec:
-    serviceAccountName: runasanyuid
+    serviceAccount: runasanyuid
     containers:
     - name: nginx
       image: quay.io/avisied0/demos:stopping-systemd
@@ -278,33 +311,23 @@ the container image.
       lifecycle:  # (1)
         preStop:  # (2)
           exec:   # (3)
-          command: ["kill", "-RTMIN+3", "1"]   # (4)
+            command: ["kill", "-RTMIN+3", "1"]   # (4)
   ```
 
   - (1) The lifecycle hooks for that container.
-  - (2) Indicate that will be called before stopping the container.
-  - (3) It will be an exec command.
-  - (4) The command to be executed; the command should exist inside the container.
+  - (2) A `preStop` hook is called before stopping the container.
+  - (3) It will be an `exec` command.
+  - (4) The command to be executed; the executable must exist in the container.
 
-- Create the pod again:
+- And we try again by:
 
-  ```shell
-  $ oc create -f pod.yaml --as=runasanyuid
+  ```sh
+  oc create -f pod-stopsignal-lifecycle.yaml --as=system:serviceaccount:stopsignal:runasanyuid
+  oc logs pod/stopsignal-lifecycle -f --as=system:serviceaccount:stopsignal:runasanyuid &
+  oc delete -f pod-stopsignal-lifecycle.yaml --as=system:serviceaccount:stopsignal:runasanyuid
   ```
 
-- Print out and follow the logs in the background:
-
-  ```shell
-  $ oc logs pod/systemd-nginx -f &
-  ```
-
-- Now we delete the pod:
-
-  ```shell
-  $ oc delete -f pod.yaml
-  ```
-
-And finally what we get immeditalty is the below:
+And the log output immediately shows the below:
 
 ```raw
 pod "systemd-nginx" deleted
@@ -390,19 +413,21 @@ Exiting container.
 
 In this article we have seen that:
 
-- systemd workloads use SIGRTMIN+3 for stopping the workload gracefully.
-- Openshift does not passthrough the STOPSIGNAL instruction from Dockerfile
-  to the container definition.
-- We can use a container lifecycle hook for the ones that could require it to
-  interact with the workload before stop the container, and for this specific
-  scenario, to send the SIGRTMIN+3 signal to PID 1 (systemd). This
-  requires the `kill` binary inside the container for sending the signal.
+- systemd workloads need `SIGRTMIN+3` for stopping the workload gracefully.
+- OpenShift does not send the signal specified in the container
+  image (via the `STOPSIGNAL` instruction). It does starting in Openshift 4.10.
+- We can use a container lifecycle hook to
+  interact with the workload when stopping the container until the fix is
+  available. For this scenario, we can use the `kill` binary (which must exist in the
+  container) to send `SIGRTMIN+3` to PID 1 (systemd).
 
-**UPDATES**
+**Updates**:
 
 - The reason the STOPSINAL instruction is not interpreted in Openshift is
-  because it is not parsed the signal name.
-- 
+  because the signal name RTMIN+3 is not properly parsed. Actually there
+  are a fix for this situation ([this PR](https://github.com/cri-o/cri-o/pull/5366)),
+  that has been seen that will be included in OpenShift 4.10. Until this
+  version is released, the solution above could make the works.
 
 ## References
 
@@ -411,3 +436,4 @@ In this article we have seen that:
 - [Dockerfile - STOPSIGNAL](https://docs.docker.com/engine/reference/builder/#stopsignal).
 - [Container Lifecycle Hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/).
 - [Attach Handlers to Container Lifecycle Events](https://kubernetes.io/docs/tasks/configure-pod-container/attach-handler-lifecycle-event/).
+- **UPDATE**: [BZ 2000877](https://bugzilla.redhat.com/show_bug.cgi?id=2000877).

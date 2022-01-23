@@ -67,30 +67,33 @@
   
   <article>
     <h1>Stopping systemd workloads in Openshift</h1>
-    <p>Are you using systemd workloads? then this article could be of your interest.
-Along this article we are going to see how the workloads based on systemd
-could be stopped gracefully on Openshift.</p>
-<p>To show what we want to transmit into this article, we are going to do
-a hands-on activities by using a simple systemd workload which run an nginx
-service; we will see the differences between using the workload in a container
-and using the workload in Openshift. Finally we will see how to overcome the
-situation in Openshift by using container lifecycle hooks.</p>
-<p>We are going to use <code>podman</code> and <code>openshift</code> for this article.</p>
+    <p>Are you using systemd workloads? Then this article could be of interest.
+In this article we are going to see how workloads based on systemd
+can be stopped gracefully on Openshift.</p>
+<p>We are going to do hands-on activities, using a simple systemd workload
+which runs an nginx service. We will see the differences between using the
+workload in Podman and using the workload in Openshift. Finally we will see
+how to overcome the limitation in Openshift by using container lifecycle hooks.</p>
 <p><strong>Prerequisites</strong></p>
 <ul>
-<li><a href="https://podman.io/">Podman</a> is installed into your environment.</li>
-<li><a href="https://docs.openshift.com/container-platform/4.9/cli_reference/openshift_cli/getting-started-cli.html#installing-openshift-cli">Openshift client</a> is installed into your environment.</li>
-<li>You have access to an Openshift cluster.</li>
+<li><a href="https://podman.io/">Podman</a> is installed in your environment.</li>
+<li><a href="https://docs.openshift.com/container-platform/4.9/cli_reference/openshift_cli/getting-started-cli.html#installing-openshift-cli">OpenShift client</a> is installed into your environment.</li>
+<li>You have access to an OpenShift cluster.</li>
 </ul>
 <blockquote>
-<p>You can install a SNO by using:</p>
-<ul>
-<li><a href="https://github.com/karmab/kcli">kcli</a>.</li>
-<li><a href="https://github.com/code-ready/crc">Code Ready Containers</a>.</li>
-</ul>
+<p>You can install a single node OpenShift using
+<a href="https://github.com/karmab/kcli">kcli</a> or
+<a href="https://github.com/code-ready/crc">Code Ready Containers</a>.</p>
 </blockquote>
+<p><strong>Updates</strong>:</p>
+<ul>
+<li>This is happening in Openshift but it will be fixed in 4.10 (verified on
+Openshift 4.10.0-ci-20220107).</li>
+<li>Here is the change at cri-o that fix this situation:
+https://github.com/cri-o/cri-o/pull/5366</li>
+</ul>
 <h2>Defining the workload</h2>
-<p>We are going to use the following simple Dockerfile to build our workload.</p>
+<p>We are going to use the following simple <code>Dockerfile.stopsignal-systemd</code> Dockerfile to build our workload.</p>
 <pre style="background-color:#fdf6e3;">
 <span style="color:#657b83;">FROM quay.io/fedora/fedora:35
 </span><span style="color:#657b83;">RUN dnf -y install procps nginx \
@@ -103,22 +106,22 @@ situation in Openshift by using container lifecycle hooks.</p>
 </span><span style="color:#657b83;">ENTRYPOINT [&quot;/sbin/init&quot;]
 </span></pre>
 <blockquote>
-<p>STOPSIGNAL instruction is not needed by podman as it detects that
-the signal to be sent should be SIGRTMIN+3 when <code>podman stop</code> is
-executed.</p>
+<p>The <code>STOPSIGNAL</code> instruction is not needed by podman as it detects that
+the signal to be sent by <code>podman stop</code> should be <code>SIGRTMIN+3</code>,
+because the container process is systemd.</p>
 </blockquote>
-<p>Now we build the container workload by:</p>
+<p>Now we build:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">export IMG=&quot;quay.io/avisied0/demos:stopping-systemd&quot;
-</span><span style="color:#657b83;">podman build -t &quot;${IMG}&quot; -f Dockerfile .
+<span style="color:#586e75;">export </span><span style="color:#268bd2;">IMG</span><span style="color:#657b83;">=</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">quay.io/avisied0/demos:stopsignal-systemd</span><span style="color:#839496;">&quot;
+</span><span style="color:#b58900;">podman</span><span style="color:#657b83;"> build</span><span style="color:#268bd2;"> -t </span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">IMG</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot;</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> Dockerfile.stopsignal-systemd .
 </span></pre>
 <h2>Runnning container with podman</h2>
 <p>Firstly, let's see what happens with the workload when running with podman or
 docker:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">CONTAINER_ID=$( podman run -it -d &quot;${IMG}&quot; )
-</span><span style="color:#657b83;">podman logs --follow &quot;${CONTAINER_ID}&quot; &amp;
-</span><span style="color:#657b83;">podman stop &quot;${CONTAINER_ID}&quot;
+<span style="color:#268bd2;">CONTAINER_ID</span><span style="color:#657b83;">=</span><span style="color:#859900;">$</span><span style="color:#657b83;">( </span><span style="color:#b58900;">podman</span><span style="color:#2aa198;"> run</span><span style="color:#268bd2;"> -it -d </span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">IMG</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot; </span><span style="color:#657b83;">)
+</span><span style="color:#b58900;">podman</span><span style="color:#657b83;"> logs</span><span style="color:#268bd2;"> --follow </span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">CONTAINER_ID</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot; </span><span style="color:#859900;">&amp;
+</span><span style="color:#b58900;">podman</span><span style="color:#657b83;"> stop </span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">CONTAINER_ID</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot;
 </span></pre>
 <p>And we get a result like the below:</p>
 <pre style="background-color:#fdf6e3;">
@@ -147,164 +150,189 @@ docker:</p>
 </span><span style="color:#657b83;">
 </span><span style="color:#657b83;">[1]+  Done                    podman logs --follow &quot;${CONTAINER_ID}&quot;
 </span></pre>
-<h2>What about Openshift?</h2>
-<p>Let's try now our workload into Openshift; you will need an Openshift cluster
-or a Single Node Openshift (you can get one by using
+<h2>What about OpenShift?</h2>
+<p>Let's try now our workload on OpenShift; you will need an OpenShift cluster
+or a single node OpenShift (you can get one by using
 <a href="https://github.com/karmab/kcli">kcli</a> or
 <a href="https://github.com/code-ready/crc">Code Ready Containers</a>).</p>
 <ul>
 <li>
 <p>Push the image to your image registry:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">podman push &quot;${IMG}&quot;
+<span style="color:#93a1a1;"># Previously IMG was defined as below:
+</span><span style="color:#93a1a1;"># export IMG=&quot;quay.io/avisied0/demos:stopsignal-systemd&quot;
+</span><span style="color:#b58900;">podman</span><span style="color:#657b83;"> push </span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">IMG</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot;
 </span></pre></li>
 </ul>
 <blockquote>
-<p>Check that the repository is public for pulling the image.</p>
+<p>Ensure the repository is public so that the cluster can pull
+the image.</p>
 </blockquote>
 <ul>
 <li>
-<p>Access your cluster as a cluster admin and create a new project:.</p>
+<p>Access your cluster as a cluster admin and create a new project:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">oc login -u kubeadmin https://api.crc.testing:6443
-</span><span style="color:#657b83;">oc new-project stopping-systemd
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> login</span><span style="color:#268bd2;"> -u</span><span style="color:#657b83;"> kubeadmin https://api.crc.testing:6443
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> new-project stopsignal
 </span></pre></li>
 <li>
 <p>Create a serviceaccount with the necessary permissions for creating and
 running the workload; this is, edit role and anyuid
 SecurityContextConstraint:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">oc create serviceaccount runasanyuid
-</span><span style="color:#657b83;">oc adm policy add-scc-to-user anyuid -z runasanyuid --as system:admin
-</span><span style="color:#657b83;">oc adm policy add-role-to-user edit -z runasanyuid --as system:admin
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> create serviceaccount runasanyuid
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> adm policy add-scc-to-user anyuid</span><span style="color:#268bd2;"> -z</span><span style="color:#657b83;"> runasanyuid</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;"> system:admin
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> adm policy add-role-to-user edit</span><span style="color:#268bd2;"> -z</span><span style="color:#657b83;"> runasanyuid</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;"> system:admin
 </span></pre></li>
 <li>
-<p>Create the pod.yaml file as the below:</p>
+<p>Create the Pod from the following <code>pod-stopsignal-systemd.yaml</code> file:</p>
 <pre style="background-color:#fdf6e3;">
 <span style="color:#268bd2;">apiVersion</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">v1
 </span><span style="color:#268bd2;">kind</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Pod
 </span><span style="color:#268bd2;">metadata</span><span style="color:#657b83;">:
-</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">systemd-nginx
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">stopsignal-systemd
 </span><span style="color:#657b83;">  </span><span style="color:#268bd2;">labels</span><span style="color:#657b83;">:
-</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
 </span><span style="color:#268bd2;">spec</span><span style="color:#657b83;">:
 </span><span style="color:#657b83;">  </span><span style="color:#268bd2;">serviceAccountName</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">runasanyuid
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">automountServiceAccountToken</span><span style="color:#657b83;">: </span><span style="color:#b58900;">false
 </span><span style="color:#657b83;">  </span><span style="color:#268bd2;">containers</span><span style="color:#657b83;">:
 </span><span style="color:#657b83;">  - </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
-</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:stopping-systemd
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:stopsignal-systemd
 </span><span style="color:#657b83;">    </span><span style="color:#268bd2;">imagePullPolicy</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Always
 </span><span style="color:#657b83;">    </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">/sbin/init</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]
 </span><span style="color:#657b83;">    </span><span style="color:#268bd2;">tty</span><span style="color:#657b83;">: </span><span style="color:#b58900;">true
 </span><span style="color:#657b83;">    </span><span style="color:#268bd2;">privileged</span><span style="color:#657b83;">: </span><span style="color:#b58900;">false
 </span></pre></li>
 <li>
-<p>Create the workload into our cluster by using the above serviceaccount:</p>
+<p>Create the workload using the new serviceaccount:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">oc create -f pod.yaml --as=runasanyuid
-</span><span style="color:#657b83;">oc get all
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> create</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> pod-stopsignal-systemd.yaml</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;"> system:serviceaccount:stopsignal:runasanyuid
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> get all
 </span></pre></li>
 <li>
 <p>Print out and follow the logs in the background.</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">oc logs pod/systemd-nginx -f &amp;
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> logs pod/stopsignal-systemd</span><span style="color:#268bd2;"> -f --as</span><span style="color:#657b83;"> system:serviceaccount:stopsignal:runasanyuid </span><span style="color:#859900;">&amp;
 </span></pre></li>
 <li>
 <p>Try to stop the workload.</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">oc delete -f pod.yaml
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> delete</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> pod-stopsignal-systemd.yaml</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;"> system:serviceaccount:stopsignal:runasanyuid
 </span></pre></li>
 </ul>
-<p>We get something like the below into the logs, but systemd and the pod is
-not stopped after a while:</p>
+<p>We get something like the below in the log output, but systemd and
+the pod are still running:</p>
 <pre style="background-color:#fdf6e3;">
 <span style="color:#657b83;">pod &quot;systemd-nginx&quot; deleted
 </span><span style="color:#657b83;">systemd-nginx login: systemd v249.7-2.fc35 running in system mode (+PAM +AUDIT +SELINUX -APPARMOR +IMA +SMACK +SECCOMP +GCRYPT +GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified)
 </span><span style="color:#657b83;">Detected virtualization podman.
 </span><span style="color:#657b83;">Detected architecture x86-64.
 </span></pre>
-<p>We can see that systemd does not begin the stop sequence as in the case of the
-container; this is because Openshift does not passthrough the STOPSIGNAL
-instruction that is found into the Dockerfile. For fix this situation we will
-use the <a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">container lifecycle hooks</a>,
-and we will explicitely send the SIGRTMIN+3 to the PID 1 (systemd).</p>
+<p>We can see that systemd does not begin the stop sequence as was the
+case with podman.  This is because Openshift did not translate the
+<code>STOPSIGNAL</code> instruction specified in the Dockerfile (this will be fixed
+at Openshift 4.10). To work around this situation we will
+use <a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">container lifecycle hooks</a>,
+to explicitly send <code>SIGRTMIN+3</code> to PID 1 (systemd).</p>
 <h2>Trying more isolated</h2>
-<p>Let's try if this happens only for SIGRTMIN+3 or for any signal used for
-STOPSIGNAL instruction. To investigate that, we will use the following
-Dockerfile file:</p>
+<p>Let's see if this happens only for <code>SIGRTMIN+3</code> or for any signal
+specified via the <code>STOPSIGNAL</code> instruction. To investigate that, we
+will use the following <code>Dockerfile.stopsignal-demo</code> Dockerfile:</p>
 <pre style="background-color:#fdf6e3;">
 <span style="color:#657b83;">FROM quay.io/fedora/fedora:35
 </span><span style="color:#657b83;">COPY demo-signal.sh /demo-signal.sh
+</span><span style="color:#657b83;">RUN chmod a+x /demo-signal.sh
 </span><span style="color:#657b83;">STOPSIGNAL SIGINT
-</span><span style="color:#657b83;">ENTRYPOINT [&quot;/demo-signal.sh&quot;]
+</span><span style="color:#657b83;">CMD [&quot;/demo-signal.sh&quot;]
 </span></pre>
-<p>The <code>demo-signal.sh</code> should has execution permissions and the content is the
-below:</p>
+<p>The <code>demo-signal.sh</code> should have execute permission. The content is:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">#!/bin/bash
+<span style="color:#93a1a1;">#!/bin/bash
 </span><span style="color:#657b83;">
-</span><span style="color:#657b83;">function trap_sigint { echo &quot;Exiting by SIGINT&quot;;  exit 0; }
-</span><span style="color:#657b83;">function trap_sigterm { echo &quot;Exiting by SIGTERM&quot;; exit 0; }
-</span><span style="color:#657b83;">function trap_sigusr1 { echo &quot;Exiting by SIGUSR1&quot;; exit 0; }
-</span><span style="color:#657b83;">function trap_sigrtmin3 { echo &quot;Exiting by SIGRTMIN+3&quot;; exit 0; }
+</span><span style="color:#268bd2;">function </span><span style="color:#b58900;">trap_signal </span><span style="color:#657b83;">{
+</span><span style="color:#657b83;">  </span><span style="color:#586e75;">local </span><span style="color:#268bd2;">signal</span><span style="color:#657b83;">=</span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#268bd2;">1</span><span style="color:#839496;">&quot;
+</span><span style="color:#657b83;">  </span><span style="color:#859900;">echo </span><span style="color:#268bd2;">-e </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">\nExiting by </span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">signal</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot; </span><span style="color:#657b83;">&gt;&amp;</span><span style="color:#6c71c4;">2
+</span><span style="color:#657b83;">  </span><span style="color:#859900;">exit</span><span style="color:#657b83;"> 0
+</span><span style="color:#657b83;">}
 </span><span style="color:#657b83;">
-</span><span style="color:#657b83;">trap trap_sigint SIGINT
-</span><span style="color:#657b83;">trap trap_sigterm SIGTERM
-</span><span style="color:#657b83;">trap trap_sigusr1 SIGUSR1
-</span><span style="color:#657b83;">trap trap_sigrtmin3 &quot;SIGRTMIN+3&quot;
+</span><span style="color:#859900;">for</span><span style="color:#657b83;"> signal </span><span style="color:#859900;">in</span><span style="color:#657b83;"> SIGINT SIGTERM SIGUSR1 </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">SIGRTMIN+3</span><span style="color:#839496;">&quot;
+</span><span style="color:#859900;">do
+</span><span style="color:#657b83;">  </span><span style="color:#859900;">trap </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">trap_signal &#39;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">signal</span><span style="color:#657b83;">}</span><span style="color:#2aa198;">&#39;</span><span style="color:#839496;">&quot; &quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">signal</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot;
+</span><span style="color:#859900;">done
 </span><span style="color:#657b83;">
-</span><span style="color:#657b83;">while true; do sleep 1; done
+</span><span style="color:#859900;">while </span><span style="color:#b58900;">true</span><span style="color:#859900;">; do
+</span><span style="color:#657b83;">    </span><span style="color:#859900;">echo </span><span style="color:#268bd2;">-n </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">.</span><span style="color:#839496;">&quot;
+</span><span style="color:#657b83;">    </span><span style="color:#b58900;">sleep</span><span style="color:#657b83;"> 1
+</span><span style="color:#859900;">done
 </span></pre>
-<p>Finally we define a workload with the pod.yaml file below:</p>
+<blockquote>
+<p>Update: Script updated based on PR at:
+https://github.com/avisiedo/freeipa-kustomize/blob/idmocp-331-stopping-with-kind-and-podman/incubator/013-signalstop/demo-signal.sh</p>
+</blockquote>
+<p>Finally we define a workload with the following <code>pod-stopsignal-demo.yaml</code>:</p>
 <pre style="background-color:#fdf6e3;">
 <span style="color:#268bd2;">apiVersion</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">v1
 </span><span style="color:#268bd2;">kind</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Pod
 </span><span style="color:#268bd2;">metadata</span><span style="color:#657b83;">:
-</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">demo-signals
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">stopsignal-demo
 </span><span style="color:#657b83;">  </span><span style="color:#268bd2;">labels</span><span style="color:#657b83;">:
-</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">signals
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">stopsignals
 </span><span style="color:#268bd2;">spec</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">automountServiceAccountToken</span><span style="color:#657b83;">: </span><span style="color:#b58900;">false
 </span><span style="color:#657b83;">  </span><span style="color:#268bd2;">containers</span><span style="color:#657b83;">:
 </span><span style="color:#657b83;">  - </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">main
-</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:signals
-</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">/demo-signal.sh</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:stopsignal-demo
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">imagePullPolicy</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Always
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">    - </span><span style="color:#2aa198;">/demo-signal.sh
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">tty</span><span style="color:#657b83;">: </span><span style="color:#b58900;">true
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">privileged</span><span style="color:#657b83;">: </span><span style="color:#b58900;">false
 </span></pre>
-<ul>
-<li>
+<p>Build the image and push:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#586e75;">export </span><span style="color:#268bd2;">IMG</span><span style="color:#657b83;">=</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">quay.io/avisied0/demos:stopsignal-demo</span><span style="color:#839496;">&quot;
+</span><span style="color:#b58900;">podman</span><span style="color:#657b83;"> build</span><span style="color:#268bd2;"> -t </span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">IMG</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot;</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> Dockerfile.stopsignal-demo .
+</span><span style="color:#b58900;">podman</span><span style="color:#657b83;"> push </span><span style="color:#839496;">&quot;</span><span style="color:#859900;">$</span><span style="color:#657b83;">{</span><span style="color:#268bd2;">IMG</span><span style="color:#657b83;">}</span><span style="color:#839496;">&quot;
+</span></pre>
 <p>And we try the scenario by:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">podman build -t quay.io/avisied0/demos:signals -f Dockerfile .
-</span><span style="color:#657b83;">podman push quay.io/avisied0/demos:signals
-</span><span style="color:#657b83;">oc create -f pod.yaml
-</span><span style="color:#657b83;">oc logs pod/demo-signals -f &amp;
-</span><span style="color:#657b83;">oc delete -f pod.yaml
-</span></pre></li>
-<li>
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> create</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> pod-stopsignal-demo.yaml</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;"> system:serviceaccount:stopsignal:runasanyuid
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> logs pod/stopsignal-demo</span><span style="color:#268bd2;"> -f --as</span><span style="color:#657b83;"> system:serviceaccount:stopsignal:runasanyuid </span><span style="color:#859900;">&amp;
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> delete</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> pod-stopsignal-demo.yaml</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;"> system:serviceaccount:stopsignal:runasanyuid
+</span></pre>
 <p>Getting the output below:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">pod &quot;demo-signals&quot; deleted
-</span><span style="color:#657b83;">Exiting by SIGTERM
-</span></pre></li>
-</ul>
-<p>So when the pod is deleted, SIGTERM signal is send to the containers that
-belong to the Pod whatever is the STOPSIGNAL instruction that is defined into
-the container image.</p>
+<span style="color:#657b83;">pod &quot;stopsignal-demo&quot; deleted
+</span><span style="color:#657b83;">............
+</span><span style="color:#657b83;">Exiting by SIGINT
+</span></pre>
+<p>When the <code>SIGINT</code> is specified into the STOPSIGNAL instruction in the Dockerfile
+Openshift is sending SIGINT signal to the pod when we delete the resource.</p>
 <blockquote>
-<p>It was tested using numeric numbers for STOPSIGNAL instruction instead of
-the name of the signal, and the result did not change.</p>
+<p>When the <code>STOPSIGNAL 37</code> (<code>RTMIN+3</code>) is specified as a numeric value, Openshift
+is sending SIGTERM instead of the expected <code>SIGRTMIN+3</code> indicated into the
+Dockerfile file.</p>
 </blockquote>
-<h2>Solution by using container lifecycle hooks</h2>
+<p><strong>Update</strong>:</p>
+<blockquote>
+<p>Another test was made in Openshift 4.10 ci build on Wed Jan 5, 2022 and it worked
+as expected, by sending the <code>SIGRTMIN+3</code> to the container workload. So this will
+be fixed in future releases.</p>
+</blockquote>
+<h2>Solution: container lifecycle hooks</h2>
 <ul>
 <li>
-<p>Update the <code>pod.yaml</code> file with the content below:</p>
+<p>Create <code>pod-stopsignal-lifecycle.yaml</code> with the content below:</p>
 <pre style="background-color:#fdf6e3;">
 <span style="color:#268bd2;">apiVersion</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">v1
 </span><span style="color:#268bd2;">kind</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Pod
 </span><span style="color:#268bd2;">metadata</span><span style="color:#657b83;">:
-</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">systemd-nginx
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">stopsignal-lifecycle
 </span><span style="color:#657b83;">  </span><span style="color:#268bd2;">labels</span><span style="color:#657b83;">:
-</span><span style="color:#657b83;">      </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">app</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
 </span><span style="color:#268bd2;">spec</span><span style="color:#657b83;">:
-</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">serviceAccountName</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">runasanyuid
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">serviceAccount</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">runasanyuid
 </span><span style="color:#657b83;">  </span><span style="color:#268bd2;">containers</span><span style="color:#657b83;">:
 </span><span style="color:#657b83;">  - </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">nginx
 </span><span style="color:#657b83;">    </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/avisied0/demos:stopping-systemd
@@ -315,32 +343,24 @@ the name of the signal, and the result did not change.</p>
 </span><span style="color:#657b83;">    </span><span style="color:#268bd2;">lifecycle</span><span style="color:#657b83;">:  </span><span style="color:#93a1a1;"># (1)
 </span><span style="color:#657b83;">      </span><span style="color:#268bd2;">preStop</span><span style="color:#657b83;">:  </span><span style="color:#93a1a1;"># (2)
 </span><span style="color:#657b83;">        </span><span style="color:#268bd2;">exec</span><span style="color:#657b83;">:   </span><span style="color:#93a1a1;"># (3)
-</span><span style="color:#657b83;">        </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">kill</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">-RTMIN+3</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">1</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]   </span><span style="color:#93a1a1;"># (4)
+</span><span style="color:#657b83;">          </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">kill</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">-RTMIN+3</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">1</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]   </span><span style="color:#93a1a1;"># (4)
 </span></pre>
 <ul>
 <li>(1) The lifecycle hooks for that container.</li>
-<li>(2) Indicate that will be called before stopping the container.</li>
-<li>(3) It will be an exec command.</li>
-<li>(4) The command to be executed; the command should exist inside the container.</li>
+<li>(2) A <code>preStop</code> hook is called before stopping the container.</li>
+<li>(3) It will be an <code>exec</code> command.</li>
+<li>(4) The command to be executed; the executable must exist in the container.</li>
 </ul>
 </li>
 <li>
-<p>Create the pod again:</p>
+<p>And we try again by:</p>
 <pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">$ oc create -f pod.yaml --as=runasanyuid
-</span></pre></li>
-<li>
-<p>Print out and follow the logs in the background:</p>
-<pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">$ oc logs pod/systemd-nginx -f &amp;
-</span></pre></li>
-<li>
-<p>Now we delete the pod:</p>
-<pre style="background-color:#fdf6e3;">
-<span style="color:#657b83;">$ oc delete -f pod.yaml
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> create</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> pod-stopsignal-lifecycle.yaml</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;">=system:serviceaccount:stopsignal:runasanyuid
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> logs pod/stopsignal-lifecycle</span><span style="color:#268bd2;"> -f --as</span><span style="color:#657b83;">=system:serviceaccount:stopsignal:runasanyuid </span><span style="color:#859900;">&amp;
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> delete</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> pod-stopsignal-lifecycle.yaml</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;">=system:serviceaccount:stopsignal:runasanyuid
 </span></pre></li>
 </ul>
-<p>And finally what we get immeditalty is the below:</p>
+<p>And the log output immediately shows the below:</p>
 <pre style="background-color:#fdf6e3;">
 <span style="color:#657b83;">pod &quot;systemd-nginx&quot; deleted
 </span><span style="color:#657b83;">systemd-nginx login: [  OK  ] Removed slice Slice /system/getty.
@@ -423,19 +443,21 @@ the name of the signal, and the result did not change.</p>
 <h2>Wrap up</h2>
 <p>In this article we have seen that:</p>
 <ul>
-<li>systemd workloads use SIGRTMIN+3 for stopping the workload gracefully.</li>
-<li>Openshift does not passthrough the STOPSIGNAL instruction from Dockerfile
-to the container definition.</li>
-<li>We can use a container lifecycle hook for the ones that could require it to
-interact with the workload before stop the container, and for this specific
-scenario, to send the SIGRTMIN+3 signal to PID 1 (systemd). This
-requires the <code>kill</code> binary inside the container for sending the signal.</li>
+<li>systemd workloads need <code>SIGRTMIN+3</code> for stopping the workload gracefully.</li>
+<li>OpenShift does not send the signal specified in the container
+image (via the <code>STOPSIGNAL</code> instruction). It does starting in Openshift 4.10.</li>
+<li>We can use a container lifecycle hook to
+interact with the workload when stopping the container until the fix is
+available. For this scenario, we can use the <code>kill</code> binary (which must exist in the
+container) to send <code>SIGRTMIN+3</code> to PID 1 (systemd).</li>
 </ul>
-<p><strong>UPDATES</strong></p>
+<p><strong>Updates</strong>:</p>
 <ul>
 <li>The reason the STOPSINAL instruction is not interpreted in Openshift is
-because it is not parsed the signal name.</li>
-<li></li>
+because the signal name RTMIN+3 is not properly parsed. Actually there
+are a fix for this situation (<a href="https://github.com/cri-o/cri-o/pull/5366">this PR</a>),
+that has been seen that will be included in OpenShift 4.10. Until this
+version is released, the solution above could make the works.</li>
 </ul>
 <h2>References</h2>
 <ul>
@@ -444,6 +466,7 @@ because it is not parsed the signal name.</li>
 <li><a href="https://docs.docker.com/engine/reference/builder/#stopsignal">Dockerfile - STOPSIGNAL</a>.</li>
 <li><a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">Container Lifecycle Hooks</a>.</li>
 <li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/attach-handler-lifecycle-event/">Attach Handlers to Container Lifecycle Events</a>.</li>
+<li><strong>UPDATE</strong>: <a href="https://bugzilla.redhat.com/show_bug.cgi?id=2000877">BZ 2000877</a>.</li>
 </ul>
 
   </article>

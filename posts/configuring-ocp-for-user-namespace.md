@@ -1,0 +1,196 @@
+---
+title: Configuring ocp for user namespace
+layout: default.liquid
+---
+Preparing an openshift cluster for using user namespaces involve
+several steps and hands-over. To simplify the process we are using
+some configurations at freeipa-kustomize that make easier that task.
+
+**Pre-requisites**:
+
+- A 4.9+ OpenShift cluster.
+- You are logged in the cluster and you have cluster-admin privileges.
+- runc and cri-o rpm patched packages. Credits and thanks to [Fraser Tweedale](https://frasertweedale.github.io/blog-redhat/).
+  - [runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm](https://ftweedal.fedorapeople.org/runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm).
+  - [cri-o-1.23.0-990.rhaos4.10.git8c7713a.el8.x86_64.rpm](https://ftweedal.fedorapeople.org/cri-o-1.23.0-990.rhaos4.10.git8c7713a.el8.x86_64.rpm).
+
+> **Out of scope**: Build the runc and cri-o rpm packages.
+
+## Setting the configuration node
+
+- Clone freeipa-kustomize repository:
+
+  ```sh
+  git clone https://github.com/freeipa/freeipa-kustomize.git
+  ```
+
+- Retrieve the machine config pools by:
+
+  ```sh
+  oc get mcp
+  ```
+
+- Set the POOL environment variables with the names of the machine config pool
+  that are going to be configured:
+
+  ```sh
+  export POOL="worker"
+  ```
+
+  if you want to specify more than one:
+
+  ```sh
+  export POOL="worker master"
+  ```
+
+- Set the list of RPMs by:
+
+  ```sh
+  export RPM_PACKAGES="https://ftweedal.fedorapeople.org/runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm https://ftweedal.fedorapeople.org/cri-o-1.23.0-990.rhaos4.10.git8c7713a.el8.x86_64.rpm"
+  ```
+
+- Now we just run:
+
+  ```sh
+  make -C config/static/nodes/userns configure
+  kustomize build config/static/nodes/userns | oc create -f -
+  ```
+
+- Monitor the node states by:
+
+  ```sh
+  watch oc get nodes
+  ```
+
+> It will take a few minutes (5-10minutes) as the configuration is applied node by node,
+> evict the node, restart the node, and make it avaiable. This
+> process is repeated for all impacted nodes. Eventually all the nodes will get a
+> Ready state and they could be used.
+
+
+## How is it structured?
+
+The main overlay at `config/static/nodes/usernd` is a copmosition of smaller
+ones, that are divided on:
+
+- `config/static/nodes/cgroup-v2`: Configure cgroup-v2 into the node, enabling
+  to mount cgroup v2 filessytem into the node.
+- `config/static/nodes/userns-subid`: Configure the necessary subid for the
+  user namespaces. Different files can be found at
+  `config/static/nodes/userns-subid/files` to spicify the subuid and subgid
+  information.
+  - `99-crio-userns.conf`: Enable the `io.kubernates.cri-o.userns-mode` annotation
+    into the PodSpec.
+  - `subuid` and `subgid`: Configure the subordinate ids to be used by the user namespace.
+- `config/static/nodes/rpm-overrides`: This configuration handle the RPM
+  package installation. This is made by creating a systemd unit, and executing
+  the command that install the RPM package. It is generated a resource for each
+  RPM and POOL. The package installation is checked before launch the RPM
+  command, so that future reboots does not try to install the RPM package
+  again. Here this is used for custom runc and cri-o rpm packages, but this
+  configuration could work for any RPM that we want to quickly test into our
+  OCP **development** cluster.
+
+## Checking that the configuration was applied
+
+- For the RPM packages:
+
+  ```sh
+  ssh -i ~/.crc/machines/crc/id_ecdsa core@192.168.130.11 runc --version
+  ```
+
+  ```raw
+  runc version 1.0.3
+  spec: 1.0.2-dev
+  go: go1.17.2
+  libseccomp: 2.5.1
+  ```
+
+  ```sh
+  ssh -i ~/.crc/machines/crc/id_ecdsa core@192.168.130.11 journalctl -u install-runc.service
+  ```
+
+  ```raw
+  -- Logs begin at Sat 2021-12-11 13:38:56 UTC, end at Wed 2022-01-26 07:12:23 UTC. --
+  Jan 26 06:50:13 crc-hsl9k-master-0 bash[1658]: package runc-1.0.3-992.rhaos4.10.el8.x86_64 is not installed
+  Jan 26 06:50:13 crc-hsl9k-master-0 systemd[1]: Started Install custom runc.
+  Jan 26 06:50:14 crc-hsl9k-master-0 bash[1658]: Downloading 'https://ftweedal.fedorapeople.org/runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm'... done!
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Checking out tree 26d80bc...done
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: No enabled rpm-md repositories.
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Importing rpm-md...done
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Resolving dependencies...done
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Applying 1 override and 5 overlays
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Processing packages...done
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Running pre scripts...done
+  Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Running post scripts...done
+  Jan 26 06:50:17 crc-hsl9k-master-0 bash[1658]: Running posttrans scripts...done
+  Jan 26 06:50:17 crc-hsl9k-master-0 bash[1658]: Writing rpmdb...done
+  Jan 26 06:50:18 crc-hsl9k-master-0 bash[1658]: Writing OSTree commit...done
+  Jan 26 06:50:19 crc-hsl9k-master-0 bash[1658]: Staging deployment...done
+  Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: Stopping Install custom runc...
+  Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: install-runc.service: Succeeded.
+  Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: Stopped Install custom runc.
+  Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: install-runc.service: Consumed 94ms CPU time
+  -- Reboot --
+  Jan 26 06:51:10 crc-hsl9k-master-0 bash[1656]: runc-1.0.3-992.rhaos4.10.el8.x86_64
+  Jan 26 06:51:09 crc-hsl9k-master-0 systemd[1]: Started Install custom runc.
+  Jan 26 06:51:09 crc-hsl9k-master-0 systemd[1]: install-runc.service: Succeeded.
+  Jan 26 06:51:09 crc-hsl9k-master-0 systemd[1]: install-runc.service: Consumed 11ms CPU time
+  ```
+
+- For the cgroup2:
+
+  ```sh
+  ssh -i ~/.crc/machines/crc/id_ecdsa core@192.168.130.11 mount | grep cgroup2
+  ```
+
+- For the kernelarguments:
+
+  ```sh
+  ssh -i ~/.crc/machines/crc/id_ecdsa core@192.168.130.11 cat /proc/cmdline
+  BOOT_IMAGE=(hd0,gpt3)/ostree/rhcos-36fd944867b0e491991a65f6f3b7209c937fe3bd7cdbd855c7c5d5a7070ce570/vmlinuz-4.18.0-305.28.1.el8_4.x86_64 random.trust_cpu=on console=tty0 console=ttyS0,115200n8 ignition.platform.id=qemu ostree=/ostree/boot.1/rhcos/36fd944867b0e491991a65f6f3b7209c937fe3bd7cdbd855c7c5d5a7070ce570/0 root=UUID=91ba4914-fd2b-4a7c-b498-28585a80a40e rw rootflags=prjquota systemd.unified_cgroup_hierarchy=1 cgroup_no_v1=all psi=1
+  ```
+
+- For the subid configuration:
+
+  ```sh
+  ssh -i ~/.crc/machines/crc/id_ecdsa core@192.168.130.11 cat /etc/subuid /etc/subgid
+  ```
+
+  ```raw
+  core:100000:65536
+  containers:200000:268435456
+  core:100000:65536
+  containers:200000:268435456
+  ```
+
+- For the cri-o configuration:
+
+  ```sh
+  ssh -i ~/.crc/machines/crc/id_ecdsa core@192.168.130.11 cat /etc/crio/crio.conf.d/99-crio-userns.conf
+  ```
+
+  ```raw
+  # https://github.com/cri-o/cri-o/blob/main/docs/crio.conf.5.md#crioruntimeruntimes-table
+  [crio.runtime.runtimes.runc]
+  allowed_annotations=["io.kubernetes.cri-o.userns-mode"]
+  ```
+
+  Now we can use the annotation below for using user namespaces into our pods:
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    annotations:
+      io.kubernetes.cri-o.userns-mode: "auto:size=65536"
+  ```
+
+## Wrap up
+
+With this configuration we can quickly set up our OCP cluster for quickly
+experiment and investigate with user namespaces.
+
+## References
+
+- [Fraser's blog - Demo: namespaced systemd workloads on OpenShift](https://frasertweedale.github.io/blog-redhat/posts/2021-07-22-openshift-systemd-workload-demo.html).

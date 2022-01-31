@@ -1,6 +1,8 @@
 ---
 title: Configuring ocp for user namespace
+published_date: "2022-01-31 11:45:58 +0000"
 layout: default.liquid
+is_draft: false
 ---
 Preparing an openshift cluster for using user namespaces involve
 several steps and hands-over. To simplify the process we are using

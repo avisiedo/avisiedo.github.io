@@ -65,7 +65,7 @@ that make easier that task.
 - Finally await the node state is updated by:
 
   ```sh
-  oc wait mp/worker --for condition=updated --timeout=-1s
+  oc wait mcp/worker --for condition=updated --timeout=-1s
   ```
 
 > It will take a few minutes (5-10minutes) as the configuration is applied node by node,

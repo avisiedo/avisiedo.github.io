@@ -11,11 +11,8 @@ that make easier that task.
 
 **Pre-requisites**:
 
-- A 4.9+ OpenShift cluster.
+- A 4.9 or 4.10 OpenShift cluster.
 - You are logged in the cluster and you have cluster-admin privileges.
-- runc and cri-o rpm patched packages. Credits and thanks to [Fraser Tweedale](https://frasertweedale.github.io/blog-redhat/).
-  - [runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm](https://ftweedal.fedorapeople.org/runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm).
-  - [cri-o-1.23.0-990.rhaos4.10.git8c7713a.el8.x86_64.rpm](https://ftweedal.fedorapeople.org/cri-o-1.23.0-990.rhaos4.10.git8c7713a.el8.x86_64.rpm).
 
 > **Out of scope**: Build the runc and cri-o rpm packages.
 
@@ -46,14 +43,17 @@ that make easier that task.
   export POOL="worker master"
   ```
 
-- Set the list of RPMs by:
+- Install some custom RPMs by:
 
   ```sh
   export RPM_PACKAGES="https://ftweedal.fedorapeople.org/runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm https://ftweedal.fedorapeople.org/cri-o-1.23.0-990.rhaos4.10.git8c7713a.el8.x86_64.rpm"
   ```
 
-  > Note that this RPM will become obsolete in the future; and starting
-  > at runc v1.1, the runc package could not be needed to be updated.
+  > The RPMs above are experimental and will become obsolete. This show
+  > how you can customize the ocp node environment easily by using this
+  > configuration. In any case, credits and thanks to
+  > [Fraser Tweedale](https://frasertweedale.github.io/blog-redhat/)
+  > for generating them.
 
 - Now we just run:
 

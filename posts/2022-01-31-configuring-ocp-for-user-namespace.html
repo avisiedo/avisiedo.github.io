@@ -1,0 +1,338 @@
+
+<!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="" />
+  <meta name="author" content="tinyeng" />
+  <meta name="description" content="" />
+  <meta property="og:site_name" content="Under the hood"/>
+  <meta property="og:type" content="blog"/>
+  <meta property="og:title" content="Under the hood"/>
+  <meta property="og:description" content=""/>
+  <meta property="og:locale" content="en_US"/>
+  <meta property="og:url" content="https://avisiedo.github.io/docs"/>
+  
+  <title>Under the hood</title>
+      
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,400;0,700;1,400&family=Source+Sans+Pro:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  
+
+  <link rel="stylesheet" type="text/css" href="/css/default.css"/>
+  <script src="https://kit.fontawesome.com/80969392e8.js" crossorigin="anonymous"></script>
+</head>
+  
+  <body class="light-theme">
+  <aside>
+    <div>
+      <a href="/">
+        <img class="profile-image" loading="lazy" src="/images/profile-image.png" alt="" title=""/>
+      </a>
+
+      <nav>
+        <ul class="list">
+            <li>
+              <a target="_self" href="/" >Under The Hood</a>
+            </li>
+            <li>
+              <a target="_self" href="https://cobalt-org.github.io" >cobalt</a>
+            </li>
+        </ul>
+      </nav>
+
+      <ul class="social">
+          <li>
+            <a  class="sc-todo" href="#" target="_blank">
+              <i class="fab fa-todo"></i>
+            </a>
+          </li>
+          <li>
+            <a  class="sc-todo" href="#" target="_blank">
+              <i class="fab fa-todo"></i>
+            </a>
+          </li>
+      </ul>
+    </div>
+
+  </aside>
+
+    <main>
+  
+  
+  
+  
+  <article>
+    <h1>Configuring ocp for user namespace</h1>
+    <p>Preparing an OpenShift cluster for using user namespaces involves
+several steps and hands-over. To simplify the process we are using
+some configurations at <a href="https://github.com/freeipa/freeipa-kustomize">freeipa-kustomize</a>
+that make easier that task.</p>
+<p><strong>Pre-requisites</strong>:</p>
+<ul>
+<li>A 4.9 or 4.10 OpenShift cluster.</li>
+<li>You are logged in the cluster and you have cluster-admin privileges.</li>
+</ul>
+<blockquote>
+<p><strong>Out of scope</strong>: Build the runc and cri-o rpm packages.</p>
+</blockquote>
+<h2>Setting the configuration node</h2>
+<ul>
+<li>
+<p>Clone freeipa-kustomize repository:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">git</span><span style="color:#657b83;"> clone https://github.com/freeipa/freeipa-kustomize.git
+</span></pre></li>
+<li>
+<p>Retrieve the machine config pools by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> get mcp
+</span></pre></li>
+<li>
+<p>Set the POOL environment variables with the names of the machine config pool
+that are going to be configured:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#586e75;">export </span><span style="color:#268bd2;">POOL</span><span style="color:#657b83;">=</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">worker</span><span style="color:#839496;">&quot;
+</span></pre>
+<p>if you want to specify more than one:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#586e75;">export </span><span style="color:#268bd2;">POOL</span><span style="color:#657b83;">=</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">worker master</span><span style="color:#839496;">&quot;
+</span></pre></li>
+<li>
+<p>Install some custom RPMs by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#586e75;">export </span><span style="color:#268bd2;">RPM_PACKAGES</span><span style="color:#657b83;">=</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">https://ftweedal.fedorapeople.org/runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm https://ftweedal.fedorapeople.org/cri-o-1.23.0-990.rhaos4.10.git8c7713a.el8.x86_64.rpm</span><span style="color:#839496;">&quot;
+</span></pre>
+<blockquote>
+<p>The RPMs above are experimental and will become obsolete. This show
+how you can customize the ocp node environment easily by using this
+configuration. Keep in mind that if they become a lower version than
+the version that ships in the cluster release, the RPM package
+will not be installed. Credits and thanks to
+<a href="https://frasertweedale.github.io/blog-redhat/">Fraser Tweedale</a>.</p>
+</blockquote>
+</li>
+<li>
+<p>Now we just run:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">make</span><span style="color:#268bd2;"> -C</span><span style="color:#657b83;"> config/static/nodes/userns configure
+</span><span style="color:#b58900;">kustomize</span><span style="color:#657b83;"> build config/static/nodes/userns </span><span style="color:#859900;">| </span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> create</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> -
+</span></pre></li>
+<li>
+<p>Finally await the node state is updated by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> wait mcp/worker</span><span style="color:#268bd2;"> --for</span><span style="color:#657b83;"> condition=updated</span><span style="color:#268bd2;"> --timeout</span><span style="color:#657b83;">=-1s
+</span></pre></li>
+</ul>
+<blockquote>
+<p>It will take a few minutes (5-10minutes) as the configuration is applied node by node,
+evacuate the node, restart the node, and make it available. This
+process is repeated for all impacted nodes. Eventually all the nodes will get a
+Ready state and they could be used.</p>
+</blockquote>
+<h2>How is it structured?</h2>
+<p>The main overlay at <code>config/static/nodes/userns</code> is a composition of smaller
+ones, that are divided on:</p>
+<ul>
+<li><code>config/static/nodes/cgroup-v2</code>: Configure cgroup-v2 into the node, enabling
+to mount cgroup v2 filessytem into the node.</li>
+<li><code>config/static/nodes/userns-subid</code>: Configure the necessary subid for the
+user namespaces. Different files can be found at
+<code>config/static/nodes/userns-subid/files</code> to spicify the subuid and subgid
+information.
+<ul>
+<li><code>99-crio-userns.conf</code>: Enable the <code>io.kubernates.cri-o.userns-mode</code> annotation
+into the PodSpec.</li>
+<li><code>subuid</code> and <code>subgid</code>: Configure the subordinate ids to be used by the user namespace.</li>
+</ul>
+</li>
+<li><code>config/static/nodes/rpm-overrides</code>: This configuration handle the RPM
+package installation. This is made by creating a systemd unit, and executing
+the command that install the RPM package. It is generated a resource for each
+RPM and POOL. The package installation is checked before launch the RPM
+command, so that future reboots does not try to install the RPM package
+again. Here this is used for custom runc and cri-o rpm packages, but this
+configuration could work for any RPM that we want to quickly test into our
+OCP <strong>development</strong> cluster.</li>
+</ul>
+<h2>Checking that the configuration was applied</h2>
+<p>Here you will find several commands that are executed from the node. If you
+are using CodeReadyContainers you can directly use a ssh command such as:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">ssh</span><span style="color:#268bd2;"> -i </span><span style="color:#d33682;">~</span><span style="color:#657b83;">/.crc/machines/crc/id_ecdsa core@192.168.130.11
+</span></pre>
+<blockquote>
+<p>This could be helpful when the KAS communication is not available.</p>
+</blockquote>
+<p>Or you can just open a terminal into the node and run the command there by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#93a1a1;"># Retrieve node list by:
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> get nodes
+</span><span style="color:#93a1a1;"># Open the terminal by:
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> debug node/NODE
+</span><span style="color:#b58900;">chroot</span><span style="color:#657b83;"> /host
+</span><span style="color:#93a1a1;"># Now run your commands here
+</span></pre>
+<ul>
+<li>
+<p>For the RPM packages check from the node:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">runc</span><span style="color:#268bd2;"> --version
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">runc version 1.0.3
+</span><span style="color:#657b83;">spec: 1.0.2-dev
+</span><span style="color:#657b83;">go: go1.17.2
+</span><span style="color:#657b83;">libseccomp: 2.5.1
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#93a1a1;"># If you are using code ready containers, you can directly do the below
+</span><span style="color:#b58900;">ssh</span><span style="color:#268bd2;"> -i </span><span style="color:#d33682;">~</span><span style="color:#657b83;">/.crc/machines/crc/id_ecdsa core@192.168.130.11 journalctl</span><span style="color:#268bd2;"> -u</span><span style="color:#657b83;"> install-runc.service
+</span><span style="color:#93a1a1;"># Or using the oc adm command
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> adm node-logs</span><span style="color:#268bd2;"> -u</span><span style="color:#657b83;"> install-runc.service NODE
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">-- Logs begin at Sat 2021-12-11 13:38:56 UTC, end at Wed 2022-01-26 07:12:23 UTC. --
+</span><span style="color:#657b83;">Jan 26 06:50:13 crc-hsl9k-master-0 bash[1658]: package runc-1.0.3-992.rhaos4.10.el8.x86_64 is not installed
+</span><span style="color:#657b83;">Jan 26 06:50:13 crc-hsl9k-master-0 systemd[1]: Started Install custom runc.
+</span><span style="color:#657b83;">Jan 26 06:50:14 crc-hsl9k-master-0 bash[1658]: Downloading &#39;https://ftweedal.fedorapeople.org/runc-1.0.3-992.rhaos4.10.el8.x86_64.rpm&#39;... done!
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Checking out tree 26d80bc...done
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: No enabled rpm-md repositories.
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Importing rpm-md...done
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Resolving dependencies...done
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Applying 1 override and 5 overlays
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Processing packages...done
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Running pre scripts...done
+</span><span style="color:#657b83;">Jan 26 06:50:16 crc-hsl9k-master-0 bash[1658]: Running post scripts...done
+</span><span style="color:#657b83;">Jan 26 06:50:17 crc-hsl9k-master-0 bash[1658]: Running posttrans scripts...done
+</span><span style="color:#657b83;">Jan 26 06:50:17 crc-hsl9k-master-0 bash[1658]: Writing rpmdb...done
+</span><span style="color:#657b83;">Jan 26 06:50:18 crc-hsl9k-master-0 bash[1658]: Writing OSTree commit...done
+</span><span style="color:#657b83;">Jan 26 06:50:19 crc-hsl9k-master-0 bash[1658]: Staging deployment...done
+</span><span style="color:#657b83;">Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: Stopping Install custom runc...
+</span><span style="color:#657b83;">Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: install-runc.service: Succeeded.
+</span><span style="color:#657b83;">Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: Stopped Install custom runc.
+</span><span style="color:#657b83;">Jan 26 06:50:20 crc-hsl9k-master-0 systemd[1]: install-runc.service: Consumed 94ms CPU time
+</span><span style="color:#657b83;">-- Reboot --
+</span><span style="color:#657b83;">Jan 26 06:51:10 crc-hsl9k-master-0 bash[1656]: runc-1.0.3-992.rhaos4.10.el8.x86_64
+</span><span style="color:#657b83;">Jan 26 06:51:09 crc-hsl9k-master-0 systemd[1]: Started Install custom runc.
+</span><span style="color:#657b83;">Jan 26 06:51:09 crc-hsl9k-master-0 systemd[1]: install-runc.service: Succeeded.
+</span><span style="color:#657b83;">Jan 26 06:51:09 crc-hsl9k-master-0 systemd[1]: install-runc.service: Consumed 11ms CPU time
+</span></pre></li>
+<li>
+<p>For the cgroup2, run the below from the node:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">mount </span><span style="color:#859900;">| </span><span style="color:#b58900;">grep</span><span style="color:#657b83;"> cgroup2
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,seclabel)
+</span><span style="color:#657b83;">cgroup on /var/lib/containers/storage/overlay/1ec73edf3e99a0772aaab2ba0f27110bb879a9fe86f607acc9de822489a4a9e1/merged/sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,seclabel)
+</span></pre></li>
+<li>
+<p>For the kernelarguments, run the below from the node:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#93a1a1;"># check kernel args in the node boot
+</span><span style="color:#b58900;">cat</span><span style="color:#657b83;"> /proc/cmdline
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">BOOT_IMAGE=(hd0,gpt3)/ostree/rhcos-36fd944867b0e491991a65f6f3b7209c937fe3bd7cdbd855c7c5d5a7070ce570/vmlinuz-4.18.0-305.28.1.el8_4.x86_64 random.trust_cpu=on console=tty0 console=ttyS0,115200n8 ignition.platform.id=qemu ostree=/ostree/boot.1/rhcos/36fd944867b0e491991a65f6f3b7209c937fe3bd7cdbd855c7c5d5a7070ce570/0 root=UUID=91ba4914-fd2b-4a7c-b498-28585a80a40e rw rootflags=prjquota systemd.unified_cgroup_hierarchy=1 cgroup_no_v1=all psi=1
+</span></pre></li>
+<li>
+<p>For the subid configuration we run the below from the node:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">cat</span><span style="color:#657b83;"> /etc/subuid
+</span><span style="color:#b58900;">cat</span><span style="color:#657b83;"> /etc/subgid
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">core:100000:65536
+</span><span style="color:#657b83;">containers:200000:268435456
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">core:100000:65536
+</span><span style="color:#657b83;">containers:200000:268435456
+</span></pre>
+<p>And we can observe that entries for container user and group exists too:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">getent</span><span style="color:#657b83;"> passwd containers
+</span><span style="color:#b58900;">getent</span><span style="color:#657b83;"> group containers
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">containers:x:1001:995:User for housing the sub ID range for containers:/var/home/containers:/sbin/nologin
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">containers:x:995:
+</span></pre></li>
+<li>
+<p>For the cri-o configuration we run the below from the node:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">cat</span><span style="color:#657b83;"> /etc/crio/crio.conf.d/99-crio-userns.conf
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;"># https://github.com/cri-o/cri-o/blob/main/docs/crio.conf.5.md#crioruntimeruntimes-table
+</span><span style="color:#657b83;">[crio.runtime.runtimes.runc]
+</span><span style="color:#657b83;">allowed_annotations=[&quot;io.kubernetes.cri-o.userns-mode&quot;]
+</span></pre>
+<p>Now we can use the annotation below to enable user namespaces for a particular Pod:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#268bd2;">apiVersion</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">v1
+</span><span style="color:#268bd2;">kind</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">Pod
+</span><span style="color:#268bd2;">metadata</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">test-userns
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">annotations</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">io.kubernetes.cri-o.userns-mode</span><span style="color:#657b83;">: </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">auto:size=65536</span><span style="color:#839496;">&quot;
+</span><span style="color:#268bd2;">spec</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">serviceAccountName</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">test-userns
+</span><span style="color:#657b83;">  </span><span style="color:#268bd2;">containers</span><span style="color:#657b83;">:
+</span><span style="color:#657b83;">  - </span><span style="color:#268bd2;">name</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">userns-test
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">image</span><span style="color:#657b83;">: </span><span style="color:#2aa198;">quay.io/fedora/fedora:35
+</span><span style="color:#657b83;">    </span><span style="color:#268bd2;">command</span><span style="color:#657b83;">: [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">sleep</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">3600</span><span style="color:#839496;">&quot;</span><span style="color:#657b83;">]
+</span></pre>
+<p>Let's try quickly with the below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#93a1a1;"># Create a namespace
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> new-project test-userns
+</span><span style="color:#93a1a1;"># Create the &#39;test-userns&#39; service account to be used
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> create sa test-userns
+</span><span style="color:#93a1a1;"># Add edit role to the sa
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> adm policy add-role-to-user edit</span><span style="color:#268bd2;"> -z</span><span style="color:#657b83;"> test-userns
+</span><span style="color:#93a1a1;"># Add anyuid security context constraint to the sa
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> adm policy add-scc-to-user anyuid</span><span style="color:#268bd2;"> -z</span><span style="color:#657b83;"> test-userns
+</span><span style="color:#93a1a1;"># We create the service
+</span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> create</span><span style="color:#268bd2;"> -f</span><span style="color:#657b83;"> pod.yaml</span><span style="color:#268bd2;"> --as</span><span style="color:#657b83;"> system:serviceaccount:</span><span style="color:#859900;">$</span><span style="color:#657b83;">( </span><span style="color:#b58900;">oc</span><span style="color:#657b83;"> project</span><span style="color:#268bd2;"> -q </span><span style="color:#657b83;">):test-userns
+</span></pre>
+<p>When the pod is ready, we check the user namespace by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> exec pod/test-userns</span><span style="color:#859900;"> --</span><span style="color:#657b83;"> cat /proc/1/uid_map
+</span></pre><pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">         0     200000      65536
+</span></pre>
+<p>This means that the [0..65535] uids inside the container are mapped to
+[200000..265535] into the parent container.</p>
+<p>When the user namespace is not used, the content of this file will be:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">         0          0 4294967295
+</span></pre></li>
+</ul>
+<h2>Wrap-up</h2>
+<p>With this configuration we can quickly set up our OCP cluster to quickly
+experiment with and investigate user namespace.</p>
+<h2>Knowledgements</h2>
+<ul>
+<li>Thanks to <a href="https://frasertweedale.github.io/blog-redhat">Fraser Tweedale</a>
+for his sessions to understand better the user namespaces.</li>
+</ul>
+<h2>References</h2>
+<ul>
+<li><a href="https://frasertweedale.github.io/blog-redhat/posts/2021-07-22-openshift-systemd-workload-demo.html">Fraser's blog - Demo: namespaced systemd workloads on OpenShift</a>.</li>
+<li><a href="https://static.sched.com/hosted_files/devconfcz2022/d5/%5BDevConf.CZ%2022%5D%20SCCs%20Presentation.pdf">Introduction to Security Context Constraints</a>.</li>
+</ul>
+
+  </article>
+  
+    <div class="pagination">
+    </div>
+  
+  
+  <footer>
+    <p></p>
+</footer>
+
+    </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+  </body>
+  </html>
+  
+  

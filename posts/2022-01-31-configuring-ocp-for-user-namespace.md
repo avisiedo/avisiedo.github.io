@@ -205,7 +205,7 @@ chroot /host
   containers:200000:268435456
   ```
 
-  And we can observe that entries for conteinrs user and group exists too:
+  And we can observe that entries for container user and group exists too:
 
   ```sh
   getent passwd containers
@@ -238,15 +238,62 @@ chroot /host
   apiVersion: v1
   kind: Pod
   metadata:
+    name: test-userns
     annotations:
       io.kubernetes.cri-o.userns-mode: "auto:size=65536"
+  spec:
+    serviceAccountName: test-userns
+    containers:
+    - name: userns-test
+      image: quay.io/fedora/fedora:35
+      command: ["sleep", "3600"]
   ```
 
-## Wrap up
+  Let's try quickly with the below:
+
+  ```sh
+  # Create a namespace
+  oc new-project test-userns
+  # Create the 'test-userns' service account to be used
+  oc create sa test-userns
+  # Add edit role to the sa
+  oc adm policy add-role-to-user edit -z test-userns
+  # Add anyuid security context constraint to the sa
+  oc adm policy add-scc-to-user anyuid -z test-userns
+  # We create the service
+  oc create -f pod.yaml --as system:serviceaccount:$( oc project -q ):test-userns
+  ```
+
+  When the pod is ready, we check the user namespace by:
+
+  ```sh
+  oc exec pod/test-userns -- cat /proc/1/uid_map
+  ```
+
+  ```raw
+           0     200000      65536
+  ```
+
+  This means that the [0..65535] uids inside the container are mapped to
+  [200000..265535] into the parent container.
+
+  When the user namespace is not used, the content of this file will be:
+
+  ```raw
+           0          0 4294967295
+  ```
+
+## Wrap-up
 
 With this configuration we can quickly set up our OCP cluster to quickly
 experiment with and investigate user namespace.
 
+## Knowledgements
+
+- Thanks to [Fraser Tweedale](https://frasertweedale.github.io/blog-redhat)
+  for his sessions to understand better the user namespaces.
+
 ## References
 
 - [Fraser's blog - Demo: namespaced systemd workloads on OpenShift](https://frasertweedale.github.io/blog-redhat/posts/2021-07-22-openshift-systemd-workload-demo.html).
+- [Introduction to Security Context Constraints](https://static.sched.com/hosted_files/devconfcz2022/d5/%5BDevConf.CZ%2022%5D%20SCCs%20Presentation.pdf).

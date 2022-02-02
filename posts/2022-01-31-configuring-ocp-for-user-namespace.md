@@ -51,9 +51,10 @@ that make easier that task.
 
   > The RPMs above are experimental and will become obsolete. This show
   > how you can customize the ocp node environment easily by using this
-  > configuration. In any case, credits and thanks to
-  > [Fraser Tweedale](https://frasertweedale.github.io/blog-redhat/)
-  > for generating them.
+  > configuration. Keep in mind that if they become a lower version than
+  > the version that ships in the cluster release, the RPM package
+  > will not be installed. Credits and thanks to
+  > [Fraser Tweedale](https://frasertweedale.github.io/blog-redhat/).
 
 - Now we just run:
 

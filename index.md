@@ -22,18 +22,10 @@ keeping myself healthier.
 
 {% endfor %}
 
+<center>
 
-{% if paginator.previous_index %}
-[Previous](/{{ paginator.previous_index_permalink }}) | 
-[Next](/{{ paginator.next_index_permalink }}) | 
-{{ paginator.index }} / {{ paginator.total_indexes }}
+{% if paginator.previous_index %}[First](/{{ paginator.first_index_permalink }}){% endif %} | {% if paginator.previous_index %}[Previous](/{{ paginator.previous_index_permalink }}){% endif %} | {% if paginator.next_index %}[Next](/{{ paginator.next_index_permalink }}){% endif %} | {% if paginator.next_index %}[Last](/{{ paginator.last_index_permalink }}){% endif %}
 
-{% if paginator.previous_index %}
-[First](/{{ paginator.first_index_permalink }})
-{% endif %}
+({{ paginator.index }} / {{ paginator.total_indexes }})
 
-{% if paginator.next_index %}
-[Last](/{{ paginator.last_index_permalink }})
-{% endif %}
-
-{% endif %}
+</center>

@@ -72,6 +72,13 @@
 the low level world; Between my hobbies I like music production (Ableton live),
 and food. I am not sporty but sometimes I practice hicking and running for
 keeping myself healthier.</p>
+<h4><a href="posts/2022-02-22-retrieving-ingress-domain.html">Retrieving the ingressDomain</a></h4>
+<p>When we are publishing a service out of our OpenShift cluster, one option
+is using a Route object. The <code>host</code> field is optional, and can be
+used to customize the pattern to be matched when the HTTP request is sent
+to our cluster, which is used to dispatch the request to the propper
+Service resource. This is made by using a reverse proxy, in the case
+of OpenShift, haproxy deployed by the ingress controller.</p>
 <h4><a href="posts/2022-01-31-configuring-ocp-for-user-namespace.html">Configuring ocp for user namespace</a></h4>
 <p>Preparing an OpenShift cluster for using user namespaces involves
 several steps and hands-over. To simplify the process we are using
@@ -81,6 +88,10 @@ that make easier that task.</p>
 <p>Are you using systemd workloads? Then this article could be of interest.
 In this article we are going to see how workloads based on systemd
 can be stopped gracefully on Openshift.</p>
+<center>
+<p>|  |  | </p>
+<p>(1 / 1)</p>
+</center>
 
   </article>
   

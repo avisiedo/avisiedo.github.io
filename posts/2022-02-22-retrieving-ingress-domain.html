@@ -1,0 +1,231 @@
+
+<!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="" />
+  <meta name="author" content="tinyeng" />
+  <meta name="description" content="" />
+  <meta property="og:site_name" content="Under the hood"/>
+  <meta property="og:type" content="blog"/>
+  <meta property="og:title" content="Under the hood"/>
+  <meta property="og:description" content=""/>
+  <meta property="og:locale" content="en_US"/>
+  <meta property="og:url" content="https://avisiedo.github.io/docs"/>
+  
+  <title>Under the hood</title>
+      
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,400;0,700;1,400&family=Source+Sans+Pro:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  
+
+  <link rel="stylesheet" type="text/css" href="/css/default.css"/>
+  <script src="https://kit.fontawesome.com/80969392e8.js" crossorigin="anonymous"></script>
+</head>
+  
+  <body class="light-theme">
+  <aside>
+    <div>
+      <a href="/">
+        <img class="profile-image" loading="lazy" src="/images/profile-image.png" alt="" title=""/>
+      </a>
+
+      <nav>
+        <ul class="list">
+            <li>
+              <a target="_self" href="/" >Under The Hood</a>
+            </li>
+            <li>
+              <a target="_self" href="https://cobalt-org.github.io" >cobalt</a>
+            </li>
+        </ul>
+      </nav>
+
+      <ul class="social">
+          <li>
+            <a  class="sc-todo" href="#" target="_blank">
+              <i class="fab fa-todo"></i>
+            </a>
+          </li>
+          <li>
+            <a  class="sc-todo" href="#" target="_blank">
+              <i class="fab fa-todo"></i>
+            </a>
+          </li>
+      </ul>
+    </div>
+
+  </aside>
+
+    <main>
+  
+  
+  
+  
+  <article>
+    <h1>Retrieving the ingressDomain</h1>
+    <p>When we are publishing a service out of our OpenShift cluster, one option
+is using a Route object. The <code>host</code> field is optional, and can be
+used to customize the pattern to be matched when the HTTP request is sent
+to our cluster, which is used to dispatch the request to the propper
+Service resource. This is made by using a reverse proxy, in the case
+of OpenShift, haproxy deployed by the ingress controller.</p>
+<p>If we want to take advantage of the required DNS configuration that was used
+when deploying the cluster (<code>*.apps.&lt;basedomain&gt;</code> but not always as we will
+see now), we could want to retrieve this value to compose the value for this
+field.</p>
+<p>One approach could be to retrieve the base domain that is using our
+OpenShift cluster by the command below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> get dnses.config.openshift.io/cluster</span><span style="color:#268bd2;"> -o</span><span style="color:#657b83;"> jsonpath=</span><span style="color:#839496;">&#39;</span><span style="color:#2aa198;">{.spec.baseDomain}</span><span style="color:#839496;">&#39;
+</span></pre>
+<p>In CodeReadyContainers with the default configuration I get:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">crc.testing
+</span></pre>
+<p>Now if we add the <code>apps.</code> suffix we get:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">apps.crc.testing
+</span></pre>
+<p>Let's see what is the default value in CRC, so we start by creating a
+namespace by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> new-project test-ingressdomain
+</span></pre>
+<p>Create a route resource by the below (we only want to see the default
+<code>host</code> field):</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> create route passthrough my-route</span><span style="color:#268bd2;"> --service</span><span style="color:#657b83;">=frontend</span><span style="color:#268bd2;"> --port</span><span style="color:#657b83;">=https
+</span></pre>
+<blockquote>
+<p>As the service does not exist, we need to specify the <code>--port=https</code> option.</p>
+</blockquote>
+<p>And retrieving the route host by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> get route/my-route</span><span style="color:#268bd2;"> -o</span><span style="color:#657b83;"> jsonpath=</span><span style="color:#839496;">&#39;</span><span style="color:#2aa198;">{.spec.host}</span><span style="color:#839496;">&#39;
+</span></pre>
+<p>We get:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">my-route-test-ingressdomain.apps-crc.testing
+</span></pre>
+<p>which is slightly different from:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">my-route-test-ingressdomain.apps.crc.testing
+</span></pre>
+<blockquote>
+<p>See <code>apps-crc</code> vs <code>apps.crc</code> substring.</p>
+</blockquote>
+<p>Then, how do we retrieve properly the value if we want to customize the <code>host</code>
+field when publishing a service and taking advantage of the DNS resolution to
+our cluster?</p>
+<p>The response is to use the ingressDomain value instead of the baseDomain.</p>
+<p>OpenShift comes with an ingress controller which manage the OpenShift Route
+and the Kubernetes Ingress resources. From <code>oc explain IngressController</code> we
+can read the below:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">KIND:     IngressController
+</span><span style="color:#657b83;">VERSION:  operator.openshift.io/v1
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">DESCRIPTION:
+</span><span style="color:#657b83;">     IngressController describes a managed ingress controller for the cluster.
+</span><span style="color:#657b83;">     The controller can service OpenShift Route and Kubernetes Ingress
+</span><span style="color:#657b83;">     resources. When an IngressController is created, a new ingress controller
+</span><span style="color:#657b83;">     deployment is created to allow external traffic to reach the services that
+</span><span style="color:#657b83;">     expose Ingress or Route resources. Updating this resource may lead to
+</span><span style="color:#657b83;">     disruption for public facing network connections as a new ingress
+</span><span style="color:#657b83;">     controller revision may be rolled out.
+</span><span style="color:#657b83;">     https://kubernetes.io/docs/concepts/services-networking/ingress-controllers
+</span><span style="color:#657b83;">     Whenever possible, sensible defaults for the platform are used. See each
+</span><span style="color:#657b83;">     field for more details.
+</span></pre>
+<p>Now this controller store the configuration into the <code>Ingress</code> resource for the
+<code>config.openshift.io/v1</code> apiVersion and group (do not confuse this with the
+<code>Ingress</code> resource from the <code>networking.k8s.io/v1</code> apiVersion and group). From
+the <code>oc explain --api-version config.openshift.io/v1 ingresses</code> we can read:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">KIND:     Ingress
+</span><span style="color:#657b83;">VERSION:  config.openshift.io/v1
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">DESCRIPTION:
+</span><span style="color:#657b83;">     Ingress holds cluster-wide information about ingress, including the default
+</span><span style="color:#657b83;">     ingress domain used for routes. The canonical name is `cluster`.
+</span><span style="color:#657b83;">     Compatibility level 1: Stable within a major release for a minimum of 12
+</span><span style="color:#657b83;">     months or 3 minor releases (whichever is longer).
+</span></pre>
+<p>More specifically, we can retrieve the default ingress domain that is used to
+compose the default <code>host</code> field into the Route objects by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> get ingresses.config/cluster</span><span style="color:#268bd2;"> -o</span><span style="color:#657b83;"> jsonpath=</span><span style="color:#839496;">&#39;</span><span style="color:#2aa198;">{.spec.domain}</span><span style="color:#839496;">&#39;
+</span></pre>
+<p>From our CRC cluster we get the <code>apps-crc.testing</code>, which match the pattern
+without any string manipulation, so it is more accurate.</p>
+<h2>Bonus track</h2>
+<p>The above is correct for many situations, but from the documentation we can
+read the below for
+<code>oc explain --api-version='config.openshift.io/v1' ingresses.spec</code>:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#657b83;">FIELDS:
+</span><span style="color:#657b83;">   appsDomain   &lt;string&gt;
+</span><span style="color:#657b83;">     appsDomain is an optional domain to use instead of the one specified in the
+</span><span style="color:#657b83;">     domain field when a Route is created without specifying an explicit host.
+</span><span style="color:#657b83;">     If appsDomain is nonempty, this value is used to generate default host
+</span><span style="color:#657b83;">     values for Route. Unlike domain, appsDomain may be modified after
+</span><span style="color:#657b83;">     installation. This assumes a new ingresscontroller has been setup with a
+</span><span style="color:#657b83;">     wildcard certificate.
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">...
+</span><span style="color:#657b83;">
+</span><span style="color:#657b83;">   domain       &lt;string&gt;
+</span><span style="color:#657b83;">     domain is used to generate a default host name for a route when the route&#39;s
+</span><span style="color:#657b83;">     host name is empty. The generated host name will follow this pattern:
+</span><span style="color:#657b83;">     &quot;&lt;route-name&gt;.&lt;route-namespace&gt;.&lt;domain&gt;&quot;. It is also used as the default
+</span><span style="color:#657b83;">     wildcard domain suffix for ingress. The default ingresscontroller domain
+</span><span style="color:#657b83;">     will follow this pattern: &quot;*.&lt;domain&gt;&quot;. Once set, changing domain is not
+</span><span style="color:#657b83;">     currently supported.
+</span></pre>
+<p>So, when <code>appsDomain</code> is defined, it is used for composing the <code>host</code> field
+into the Route resource by default. This provide the following:</p>
+<ul>
+<li><code>domain</code> store the apps domain based on the DNS records that route the
+default traffic to the cluster.</li>
+<li><code>appsDomain</code> provide an alternative to change how the default domain is
+generated as the <code>domain</code> field is immutable and can not be changed. But
+this could require additional DNS name resolution.
+(see <a href="https://docs.openshift.com/container-platform/4.9/networking/ingress-operator.html#nw-ingress-controller-configuration-parameters_configuring-ingress">this</a>).</li>
+</ul>
+<p>By the way, the above explained will works as it will be based into the
+DNS registries required for creating an OpenShift cluster.</p>
+<h2>Wrap up</h2>
+<p>To retrieve the value for the ingressDomain that match the DNS
+records specified when creating the cluster, and take advantege
+of them, we retrieve the value by:</p>
+<pre style="background-color:#fdf6e3;">
+<span style="color:#b58900;">oc</span><span style="color:#657b83;"> get ingresses.config/cluster</span><span style="color:#268bd2;"> -o</span><span style="color:#657b83;"> jsonpath=</span><span style="color:#839496;">&#39;</span><span style="color:#2aa198;">{.spec.domain}</span><span style="color:#839496;">&#39;
+</span></pre>
+<h2>References</h2>
+<ul>
+<li><a href="https://docs.openshift.com/container-platform/4.9/networking/ingress-operator.html">Ingress Operator in OpenShift Container Platform</a>.</li>
+<li><a href="https://github.com/code-ready/crc/blob/master/pkg/crc/services/dns/template.go#L11">dnsmasq template in CRC</a>.</li>
+<li><a href="https://github.com/code-ready/crc/blob/master/pkg/crc/constants/constants.go#L40">Constants for CRC domains</a>.</li>
+</ul>
+
+  </article>
+  
+    <div class="pagination">
+    </div>
+  
+  
+  <footer>
+    <p></p>
+</footer>
+
+    </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+  </body>
+  </html>
+  
+  

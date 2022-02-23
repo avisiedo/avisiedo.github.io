@@ -14,7 +14,7 @@ include mk/container.mk
 
 ##@ General actions
 
-:PHONY: build
+.PHONY: build
 build: ## Build the site at _site directory
 	cobalt build $(DRAFTS)
 
